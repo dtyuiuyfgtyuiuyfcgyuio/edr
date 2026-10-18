@@ -10872,6 +10872,23 @@
         "type": {"eq": "DNS_QUERY"},
         "dns_failure_score": {"regex": "^(?:7[5-9]|[89][0-9]|100)$"}
       }
+    },
+    {
+      "id": "EDR-520",
+      "severity": "high",
+      "action": "alert",
+      "condition": "all",
+      "mitre_attack": ["T1204.002"],
+      "mitre_tactic": ["Execution"],
+      "comments": "Opt-in threat_intel feed matched the current SHA-256 of a configured FIM watch file on an added or modified transition. Artifact-local evidence; no actor PID or execution is inferred. Removed files and unknown baselines are excluded. The mapping is an investigative lead for a malicious-file execution risk, not evidence that execution occurred.",
+      "match": {
+        "type": {"eq": "FILE_INTEGRITY"},
+        "fim_action": {"regex": "^(?:added|modified)$"},
+        "fim_baseline": {"eq": "true"},
+        "fim_sha256": {"regex": "^[A-Fa-f0-9]{64}$"},
+        "threat_intel_score": {"regex": "^(?:8[5-9]|9[0-9]|100)$"},
+        "threat_intel_ioc_types": {"eq": "sha256"}
+      }
     }
   ]
 }

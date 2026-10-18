@@ -637,6 +637,7 @@ bool ThreatIntelDetector::Inspects(uint16_t type) {
     case EDR_EVT_IMAGE_LOAD:
     case EDR_EVT_DNS_QUERY:
     case EDR_EVT_NET_CONNECT:
+    case EDR_EVT_FILE_INTEGRITY:
         return true;
     default:
         return false;
@@ -674,13 +675,28 @@ void ThreatIntelDetector::Enrich(Event& event) {
     if (m_indicators.empty()) return;
 
     const uint64_t now = event.ts100ns;
-    if (now != 0) PurgeExpired(now);
-    if (event.pid == 0) return;
+    const bool fileArtifact = event.type == EDR_EVT_FILE_INTEGRITY;
+    if (!fileArtifact && now != 0) PurgeExpired(now);
+    if (event.pid == 0 && !fileArtifact) return;
 
     /* Collect every indicator this event references. One event can legitimately
      * match several entries (e.g. a hash known by two feeds). */
     std::vector<const Indicator*> hits;
     switch (event.type) {
+    case EDR_EVT_FILE_INTEGRITY: {
+        const std::string action = FieldValue(event, field::kFimAction);
+        const std::string path = FieldValue(event, field::kFimPath);
+        if ((action != "added" && action != "modified") ||
+            FieldValue(event, field::kFimBaseline) != "true" ||
+            path.empty() || path.find('\0') != std::string::npos) break;
+        // This digest belongs to the file object, never to an actor image.
+        const std::string hash = LowerAscii(FieldValue(event, field::kFimSha256));
+        if (!IsHex(hash, 64)) break;
+        const auto range = m_byHash.equal_range(hash);
+        for (auto it = range.first; it != range.second; ++it)
+            hits.push_back(it->second);
+        break;
+    }
     case EDR_EVT_PROCESS_START: {
         const std::string hash = Sha256Value(event);
         if (!hash.empty()) {
@@ -757,7 +773,7 @@ void ThreatIntelDetector::Enrich(Event& event) {
     std::string stateKey;
     std::string endpointId;
     bool exactIdentity = false;
-    bool retainState = now != 0 &&
+    bool retainState = !fileArtifact && now != 0 &&
         ProcessStateKey(event, stateKey, endpointId, exactIdentity);
     if (retainState) {
         const auto previous = m_states.find(stateKey);

@@ -14,6 +14,8 @@
 
 #include "collector.h"
 #include "collector_fim.h"
+#include "threat_intel_detector.h"
+#include "rule_engine.h"
 
 namespace {
 
@@ -444,9 +446,64 @@ void OverflowAndRestartHaveBoundedLifecycle() {
     collector->Stop();
 }
 
+void FileChangesMatchIocsBeforeExecution(const char* rulesPath) {
+    TempDir temp;
+    const auto path = temp.AddPath(L"ioc-artifact.bin");
+    const auto pathUtf8 = ToUtf8(path);
+    edr::EventBus bus(32);
+    Recorder recorder;
+    bus.Start(&recorder);
+    std::unique_ptr<edr::ICollector> collector(
+        edr::CreateFimCollector(40, 1024 * 1024, {pathUtf8}));
+    Require(collector->Start(&bus), "native FIM starts for the IOC integration");
+    Require(WaitUntil([&] {
+        const auto health = collector->GetHealthSnapshot();
+        const auto found = health.counters.find("successful_snapshots");
+        return found != health.counters.end() && found->second != 0;
+    }), "a complete missing baseline is established before creating the artifact");
+    PutFixtureFile(path, "first", 5);
+    Require(WaitForEvents(recorder, 1), "native file creation emits a hashed event");
+    Require(DeleteFileW(path.c_str()) != FALSE, "the owned artifact is removed");
+    Require(WaitForEvents(recorder, 2), "native removal emits a separate event");
+    collector->Stop();
+    bus.Stop();
+    const auto events = recorder.Events();
+    Require(events.size() == 2 && events[0].pid == 0, "artifact evidence has no invented process actor");
+    const std::string digest = "a7937b64b8caa58f03721bb6bacf5c78cb235febe0e70b1b84cd99541461a08e";
+    Require(Field(events[0], edr::field::kFimSha256) == digest, "native hash equals the known SHA-256 of benign fixture bytes");
+    const std::string feed = "{\"indicators\":[{\"id\":\"TI-FILE\",\"type\":\"sha256\",\"value\":\"" +
+        digest + "\",\"confidence\":\"high\",\"source\":\"synthetic-test\"}]}";
+    const auto feedPath = temp.AddPath(L"feed.json");
+    PutFixtureFile(feedPath, feed.data(), feed.size());
+    edr::ThreatIntelDetector detector(true, 55, 300, 1024);
+    std::string error;
+    Require(detector.LoadIndicators(ToUtf8(feedPath), error), "the synthetic IOC feed loads");
+    edr::RuleEngine engine;
+    engine.LoadFromFile(rulesPath);
+    size_t alerts = 0;
+    engine.SetAlertCallback([&](const edr::Alert& alert) {
+        if (alert.ruleId == "EDR-520") {
+            Require(alert.action == "alert", "artifact IOC rule only alerts");
+            ++alerts;
+        }
+    });
+    auto added = events[0];
+    detector.Enrich(added);
+    Require(Field(added, edr::field::kThreatIntelScore) == "85", "native creation reaches the IOC matcher without execution");
+    engine.OnEvent(added);
+    Require(alerts == 1, "native creation reaches the production artifact IOC rule");
+    auto removed = events[1];
+    detector.Enrich(removed);
+    engine.OnEvent(removed);
+    Require(Field(removed, edr::field::kThreatIntelScore).empty() && alerts == 1,
+            "a historical hash on a removed file never reports a present artifact");
+}
+
 } // namespace
 
-int main() {
+int main(int argc, char** argv) {
+    if (argc > 2) return 1;
+    if (argc == 2) FileChangesMatchIocsBeforeExecution(argv[1]);
     MissingWatchPathCanAppearAndBeRemoved();
     SameSizeContentChangeAndRemovalAreReported();
     FailedQueriesRetainBaselineAndAreVisibleInHealth();

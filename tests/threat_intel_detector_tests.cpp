@@ -1410,9 +1410,135 @@ void TestHotReloadRevokesExistingProcessEvidence() {
     TI_CHECK(Field(domain, edr::field::kThreatIntelScore) == "60");
 }
 
+edr::Event FimEvent(const std::string& digest, uint64_t time = kLifecycleEpoch) {
+    edr::Event event;
+    event.type = EDR_EVT_FILE_INTEGRITY;
+    event.ts100ns = time;
+    event.source = "fim_monitor";
+    event.fields[edr::field::kType] = "FILE_INTEGRITY";
+    event.fields[edr::field::kSource] = event.source;
+    event.fields[edr::field::kFimAction] = "added";
+    event.fields[edr::field::kFimPath] = "C:\\EDR-Test\\artifact.bin";
+    event.fields[edr::field::kFimBaseline] = "true";
+    event.fields[edr::field::kFimSha256] = digest;
+    return event;
+}
+
+void TestFimHashesMatchWithoutInventingProcessIdentity() {
+    edr::ThreatIntelDetector detector(true, 55, 300, 1024);
+    std::string error;
+    TI_CHECK(detector.LoadIndicators(WriteFeed(kFeed), error));
+    TI_CHECK(edr::ThreatIntelDetector::Inspects(EDR_EVT_FILE_INTEGRITY));
+    for (const char* action : {"added", "modified"}) {
+        auto file = FimEvent(std::string(64, 'A'));
+        file.fields[edr::field::kFimAction] = action;
+        detector.Enrich(file);
+        TI_CHECK(file.pid == 0);
+        TI_CHECK(Field(file, edr::field::kThreatIntelScore) == "85");
+        TI_CHECK(Field(file, edr::field::kThreatIntelIocIds) == "TI-1");
+        TI_CHECK(Field(file, edr::field::kThreatIntelIocCount) == "1");
+        TI_CHECK(detector.StateCount() == 0);
+    }
+}
+
+void TestFimEvidenceNeverBorrowsOrPollutesProcessEvidence() {
+    edr::ThreatIntelDetector detector(true, 55, 300, 1024);
+    std::string error;
+    TI_CHECK(detector.LoadIndicators(WriteFeed(kFeed), error));
+    auto hash = ProcessStart("process.exe", "process.exe", std::string(64, 'a'), 7101, kLifecycleEpoch);
+    SetReliableProcessIdentity(hash, 12345, "endpoint", "driver");
+    detector.Enrich(hash);
+    auto file = FimEvent(std::string(64, 'b'), hash.ts100ns + 1);
+    file.pid = 7101;
+    SetReliableProcessIdentity(file, 12345, "endpoint", "fim_monitor");
+    detector.Enrich(file);
+    TI_CHECK(Field(file, edr::field::kThreatIntelScore) == "85");
+    TI_CHECK(Field(file, edr::field::kThreatIntelIocIds) == "TI-2");
+    auto dns = DnsQuery("c2.example.test", 7101, file.ts100ns + 1);
+    SetReliableProcessIdentity(dns, 12345, "endpoint", "dns");
+    detector.Enrich(dns);
+    TI_CHECK(Field(dns, edr::field::kThreatIntelIocIds) == "TI-1,TI-3");
+    TI_CHECK(detector.StateCount() == 1);
+    auto futureFile = FimEvent(std::string(64, 'b'), kLifecycleEpoch + 301 * kSecond);
+    detector.Enrich(futureFile);
+    TI_CHECK(detector.StateCount() == 1);
+    auto followingDns = DnsQuery("c2.example.test", 7101, kLifecycleEpoch + 3);
+    SetReliableProcessIdentity(followingDns, 12345, "endpoint", "dns");
+    detector.Enrich(followingDns);
+    TI_CHECK(Field(followingDns, edr::field::kThreatIntelIocIds) == "TI-1,TI-3");
+    edr::ThreatIntelDetector independent(true, 55, 300, 1024);
+    TI_CHECK(independent.LoadIndicators(WriteFeed(kFeed), error));
+    auto firstFile = FimEvent(std::string(64, 'a'));
+    firstFile.pid = 7101;
+    SetReliableProcessIdentity(firstFile, 12345, "endpoint", "fim_monitor");
+    independent.Enrich(firstFile);
+    auto standaloneDns = DnsQuery("c2.example.test", 7101, kLifecycleEpoch + 1);
+    SetReliableProcessIdentity(standaloneDns, 12345, "endpoint", "dns");
+    independent.Enrich(standaloneDns);
+    TI_CHECK(Field(standaloneDns, edr::field::kThreatIntelScore) == "60");
+}
+
+void TestIncompleteOrRemovedFimEvidenceDoesNotMatch() {
+    edr::ThreatIntelDetector detector(true, 55, 300, 1024);
+    std::string error;
+    TI_CHECK(detector.LoadIndicators(WriteFeed(kFeed), error));
+    for (const char* action : {"removed", "baseline", "unknown", ""}) {
+        auto file = FimEvent(std::string(64, 'a'));
+        file.fields[edr::field::kFimAction] = action;
+        detector.Enrich(file);
+        TI_CHECK(Field(file, edr::field::kThreatIntelScore).empty());
+    }
+    for (const char* field : {edr::field::kFimBaseline, edr::field::kFimPath, edr::field::kFimSha256}) {
+        auto file = FimEvent(std::string(64, 'a'));
+        file.fields.erase(field);
+        file.fields[edr::field::kSha256] = std::string(64, 'a');
+        detector.Enrich(file);
+        TI_CHECK(Field(file, edr::field::kThreatIntelScore).empty());
+    }
+    auto unknown = FimEvent(std::string(64, 'a'));
+    unknown.fields[edr::field::kFimBaseline] = "false";
+    detector.Enrich(unknown);
+    TI_CHECK(Field(unknown, edr::field::kThreatIntelScore).empty());
+    for (const std::string& digest : {std::string(63, 'a'), std::string(64, 'g'), std::string(64, 'a') + "extra", std::string(64, 'c')}) {
+        auto file = FimEvent(digest);
+        detector.Enrich(file);
+        TI_CHECK(Field(file, edr::field::kThreatIntelScore).empty());
+    }
+}
+
+void TestFimHashesHonorLifecycleAndOperatorThreshold() {
+    std::string error;
+    edr::ThreatIntelDetector detector(true, 55, 300, 1024);
+    TI_CHECK(detector.LoadIndicators(WriteFeed(LifecycleFeed(
+        ",\"valid_from\":\"2026-10-18T00:00:00Z\",\"valid_until\":\"2026-10-18T00:00:01Z\"",
+        "sha256", std::string(64, 'a'))), error));
+    auto live = FimEvent(std::string(64, 'a'));
+    detector.Enrich(live);
+    TI_CHECK(Field(live, edr::field::kThreatIntelScore) == "85");
+    for (uint64_t time : {uint64_t{0}, kLifecycleEpoch - 1, kLifecycleEpoch + kSecond}) {
+        auto file = FimEvent(std::string(64, 'a'), time);
+        detector.Enrich(file);
+        TI_CHECK(Field(file, edr::field::kThreatIntelScore).empty());
+    }
+    TI_CHECK(detector.LoadIndicators(WriteFeed(LifecycleFeed(
+        ",\"revoked\":true", "sha256", std::string(64, 'a'))), error));
+    auto revoked = FimEvent(std::string(64, 'a'));
+    detector.Enrich(revoked);
+    TI_CHECK(Field(revoked, edr::field::kThreatIntelScore).empty());
+    edr::ThreatIntelDetector strict(true, 86, 300, 1024);
+    TI_CHECK(strict.LoadIndicators(WriteFeed(kFeed), error));
+    auto below = FimEvent(std::string(64, 'a'));
+    strict.Enrich(below);
+    TI_CHECK(Field(below, edr::field::kThreatIntelScore).empty());
+}
+
 } // namespace
 
 void RunThreatIntelDetectorTests() {
+    TestFimHashesMatchWithoutInventingProcessIdentity();
+    TestFimEvidenceNeverBorrowsOrPollutesProcessEvidence();
+    TestIncompleteOrRemovedFimEvidenceDoesNotMatch();
+    TestFimHashesHonorLifecycleAndOperatorThreshold();
     TestIndicatorValidityBoundaries();
     TestLifecycleAppliesToEveryMatchingSurface();
     TestInvalidLifecycleRejectsWholeReplacement();

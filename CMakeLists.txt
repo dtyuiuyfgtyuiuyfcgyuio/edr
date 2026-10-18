@@ -935,7 +935,8 @@ if(BUILD_TESTING)
     add_executable(edr_firewall_collector_tests
         tests/firewall_collector_tests.cpp user/collector_firewall.cpp user/event_bus.cpp)
     add_executable(edr_fim_collector_tests
-        tests/fim_collector_tests.cpp user/collector_fim.cpp user/file_reputation.cpp user/event_bus.cpp)
+        tests/fim_collector_tests.cpp user/collector_fim.cpp user/file_reputation.cpp user/event_bus.cpp
+        user/threat_intel_detector.cpp user/config.cpp user/rule_engine.cpp user/rule_lint.cpp)
     add_executable(edr_listener_collector_tests
         tests/listener_collector_tests.cpp user/collector_listener.cpp
         user/process_query.cpp user/config.cpp user/event_bus.cpp)
@@ -972,7 +973,8 @@ if(BUILD_TESTING)
     add_test(NAME edr_share_native_read_tests COMMAND edr_share_native_read_tests)
     add_test(NAME edr_listener_collector_tests COMMAND edr_listener_collector_tests)
     add_test(NAME edr_firewall_collector_tests COMMAND edr_firewall_collector_tests)
-    add_test(NAME edr_fim_collector_tests COMMAND edr_fim_collector_tests)
+    add_test(NAME edr_fim_collector_tests COMMAND edr_fim_collector_tests
+        "${CMAKE_CURRENT_SOURCE_DIR}/rules/rules.json")
     add_test(NAME edr_usb_collector_tests COMMAND edr_usb_collector_tests)
     add_test(NAME edr_critical_process_collector_tests COMMAND edr_critical_process_collector_tests)
     add_test(NAME edr_hook_scan_collector_tests COMMAND edr_hook_scan_collector_tests)

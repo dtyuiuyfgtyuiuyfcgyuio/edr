@@ -1245,9 +1245,180 @@ void TestCidrReloadReplacesPrefixesAtomically() {
     TI_CHECK(Field(current, edr::field::kThreatIntelIocIds) == "new");
 }
 
+constexpr uint64_t kLifecycleEpoch = 134367552000000000ULL;
+
+std::string LifecycleFeed(const std::string& extra,
+                          const std::string& type = "domain",
+                          const std::string& value = "c2.example.test") {
+    return "{\"indicators\":[{\"id\":\"lifecycle\",\"type\":\"" + type +
+        "\",\"value\":\"" + value + "\",\"confidence\":\"high\",\"source\":\"unit\"" +
+        extra + "}]}";
+}
+
+void TestIndicatorValidityBoundaries() {
+    edr::ThreatIntelDetector detector(true, 55, 300, 1024);
+    std::string error;
+    TI_CHECK(detector.LoadIndicators(WriteFeed(LifecycleFeed(
+        ",\"valid_from\":\"2026-10-18T00:00:00.1234567Z\","
+        "\"valid_until\":\"2026-10-18T00:00:01.1Z\"")), error));
+    const uint64_t from = kLifecycleEpoch + 1234567;
+    const uint64_t until = kLifecycleEpoch + 11000000;
+    for (uint64_t time : {from - 1, from, until - 1, until}) {
+        auto event = DnsQuery("sub.c2.example.test", 601, time);
+        detector.Enrich(event);
+        TI_CHECK(Field(event, edr::field::kThreatIntelScore) ==
+            ((time >= from && time < until) ? "60" : ""));
+    }
+    auto undated = DnsQuery("c2.example.test", 601, 0);
+    detector.Enrich(undated);
+    TI_CHECK(Field(undated, edr::field::kThreatIntelScore).empty());
+}
+
+void TestLifecycleAppliesToEveryMatchingSurface() {
+    const std::vector<std::pair<std::string, std::string>> cases = {
+        {"domain", "c2.example.test"}, {"sha256", std::string(64, 'a')},
+        {"cert_sha256", std::string(64, 'b')}, {"ipv4", "203.0.113.77"},
+        {"ipv6", "2001:db8::77"}, {"ipv4_cidr", "203.0.113.0/24"},
+        {"ipv6_cidr", "2001:db8::/32"}
+    };
+    for (const auto& item : cases) {
+        edr::ThreatIntelDetector detector(true, 55, 300, 1024);
+        std::string error;
+        TI_CHECK(detector.LoadIndicators(WriteFeed(LifecycleFeed(
+            ",\"valid_until\":\"2026-10-18T00:00:01Z\",\"revoked\":false",
+            item.first, item.second)), error));
+        auto make = [&](uint64_t time) {
+            if (item.first == "domain") return DnsQuery(item.second, 602, time);
+            if (item.first == "sha256") return ProcessStart("test.exe", "test.exe", item.second, 602, time);
+            if (item.first == "cert_sha256") {
+                auto event = ImageLoad("test.dll", "", 602, time);
+                event.fields[edr::field::kSignerCertificateSha256] = item.second;
+                return event;
+            }
+            return NetConnect(item.first.find("ipv4") == 0 ? "203.0.113.77" : "2001:db8::77", 602, time);
+        };
+        auto active = make(kLifecycleEpoch);
+        detector.Enrich(active);
+        TI_CHECK(!Field(active, edr::field::kThreatIntelScore).empty());
+        auto expired = make(kLifecycleEpoch + kSecond);
+        detector.Enrich(expired);
+        TI_CHECK(Field(expired, edr::field::kThreatIntelScore).empty());
+        TI_CHECK(detector.LoadIndicators(WriteFeed(LifecycleFeed(
+            ",\"revoked\":true", item.first, item.second)), error));
+        auto revoked = make(kLifecycleEpoch);
+        detector.Enrich(revoked);
+        TI_CHECK(Field(revoked, edr::field::kThreatIntelScore).empty());
+    }
+}
+
+void TestInvalidLifecycleRejectsWholeReplacement() {
+    edr::ThreatIntelDetector detector(true, 55, 300, 1024);
+    std::string error;
+    TI_CHECK(detector.LoadIndicators(WriteFeed(kFeed), error));
+    const std::vector<std::string> bad = {
+        ",\"valid_from\":null", ",\"valid_until\":123", ",\"revoked\":\"true\"",
+        ",\"revoked\":null", ",\"valid_from\":\"\"",
+        ",\"valid_from\":\"2026-02-29T00:00:00Z\"",
+        ",\"valid_from\":\"2026-10-18T24:00:00Z\"",
+        ",\"valid_from\":\"2026-10-18T00:60:00Z\"",
+        ",\"valid_from\":\"2026-10-18T00:00:60Z\"",
+        ",\"valid_from\":\"2026-10-18 00:00:00Z\"",
+        ",\"valid_from\":\"2026-10-18T00:00:00+00:00\"",
+        ",\"valid_from\":\"2026-10-18T00:00:00.Z\"",
+        ",\"valid_from\":\"2026-10-18T00:00:00.12345678Z\"",
+        ",\"valid_from\":\"2026-10-18T00:00:00z\"",
+        ",\"valid_from\":\"2026-10-18T00:00:00Z\\u0000\"",
+        ",\"valid_from\":\"2026-10-18T00:00:01Z\",\"valid_until\":\"2026-10-18T00:00:01Z\"",
+        ",\"valid_from\":\"2026-10-18T00:00:02Z\",\"valid_until\":\"2026-10-18T00:00:01Z\""
+    };
+    for (const auto& extra : bad) {
+        TI_CHECK(!detector.LoadIndicators(WriteFeed(LifecycleFeed(extra)), error));
+        TI_CHECK(!error.empty());
+        auto previous = DnsQuery("c2.example.test", 603, kLifecycleEpoch);
+        detector.Enrich(previous);
+        TI_CHECK(Field(previous, edr::field::kThreatIntelScore) == "60");
+    }
+}
+
+const char* const kLifecycleEvidenceFeed = R"({"indicators":[
+    {"id":"hash","type":"sha256","value":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","confidence":"high","source":"unit","valid_from":"2026-10-18T00:00:02Z","valid_until":"2026-10-18T00:00:04Z"},
+    {"id":"domain","type":"domain","value":"c2.example.test","confidence":"high","source":"unit"},
+    {"id":"address","type":"ipv4","value":"203.0.113.77","confidence":"high","source":"unit"}
+]})";
+
+void TestExpiredEvidenceStopsContributingButLiveEvidenceRemains() {
+    edr::ThreatIntelDetector detector(true, 55, 300, 1024);
+    std::string error;
+    TI_CHECK(detector.LoadIndicators(WriteFeed(kLifecycleEvidenceFeed), error));
+    auto hash = ProcessStart("test.exe", "test.exe", std::string(64, 'a'), 604, kLifecycleEpoch + 2 * kSecond);
+    SetReliableProcessIdentity(hash, 12345, "endpoint", "driver");
+    detector.Enrich(hash);
+    TI_CHECK(Field(hash, edr::field::kThreatIntelScore) == "85");
+    auto domain = DnsQuery("c2.example.test", 604, kLifecycleEpoch + 3 * kSecond);
+    SetReliableProcessIdentity(domain, 12345, "endpoint", "dns");
+    detector.Enrich(domain);
+    TI_CHECK(Field(domain, edr::field::kThreatIntelScore) == "100");
+    auto address = NetConnect("203.0.113.77", 604, kLifecycleEpoch + 4 * kSecond);
+    SetReliableProcessIdentity(address, 12345, "endpoint", "network");
+    detector.Enrich(address);
+    TI_CHECK(Field(address, edr::field::kThreatIntelScore) == "80");
+    TI_CHECK(Field(address, edr::field::kThreatIntelIocIds) == "domain,address");
+    TI_CHECK(Field(address, edr::field::kThreatIntelIocCount) == "2");
+}
+
+void TestLateAndUndatedEventsDoNotBorrowFutureEvidence() {
+    edr::ThreatIntelDetector detector(true, 55, 300, 1024);
+    std::string error;
+    TI_CHECK(detector.LoadIndicators(WriteFeed(kLifecycleEvidenceFeed), error));
+    auto hash = ProcessStart("test.exe", "test.exe", std::string(64, 'a'), 605, kLifecycleEpoch + 3 * kSecond);
+    SetReliableProcessIdentity(hash, 12345, "endpoint", "driver");
+    detector.Enrich(hash);
+    for (uint64_t time : {kLifecycleEpoch + kSecond, uint64_t{0}}) {
+        auto late = DnsQuery("c2.example.test", 605, time);
+        SetReliableProcessIdentity(late, 12345, "endpoint", "dns");
+        detector.Enrich(late);
+        TI_CHECK(Field(late, edr::field::kThreatIntelScore) == "60");
+        TI_CHECK(Field(late, edr::field::kThreatIntelIocIds) == "domain");
+    }
+    auto current = DnsQuery("c2.example.test", 605, hash.ts100ns + 1);
+    SetReliableProcessIdentity(current, 12345, "endpoint", "dns");
+    detector.Enrich(current);
+    TI_CHECK(Field(current, edr::field::kThreatIntelScore) == "100");
+}
+
+void TestHotReloadRevokesExistingProcessEvidence() {
+    edr::ThreatIntelDetector detector(true, 55, 300, 1024);
+    std::string error;
+    const std::string path = WriteFeed(kLifecycleEvidenceFeed);
+    TI_CHECK(detector.LoadIndicators(path, error));
+    auto hash = ProcessStart("test.exe", "test.exe", std::string(64, 'a'), 606, kLifecycleEpoch + 3 * kSecond);
+    SetReliableProcessIdentity(hash, 12345, "endpoint", "driver");
+    detector.Enrich(hash);
+    std::string replacement(kLifecycleEvidenceFeed);
+    const auto offset = replacement.find("\"id\":\"hash\"");
+    TI_CHECK(offset != std::string::npos);
+    replacement.insert(offset, "\"revoked\":true,");
+    { std::ofstream out(path, std::ios::binary | std::ios::trunc); out << replacement; TI_CHECK(out.good()); }
+    TI_CHECK(detector.ReloadIndicatorsIfChanged(error));
+    auto revoked = hash;
+    revoked.fields.erase(edr::field::kThreatIntelScore);
+    detector.Enrich(revoked);
+    TI_CHECK(Field(revoked, edr::field::kThreatIntelScore).empty());
+    auto domain = DnsQuery("c2.example.test", 606, hash.ts100ns + 1);
+    SetReliableProcessIdentity(domain, 12345, "endpoint", "dns");
+    detector.Enrich(domain);
+    TI_CHECK(Field(domain, edr::field::kThreatIntelScore) == "60");
+}
+
 } // namespace
 
 void RunThreatIntelDetectorTests() {
+    TestIndicatorValidityBoundaries();
+    TestLifecycleAppliesToEveryMatchingSurface();
+    TestInvalidLifecycleRejectsWholeReplacement();
+    TestExpiredEvidenceStopsContributingButLiveEvidenceRemains();
+    TestLateAndUndatedEventsDoNotBorrowFutureEvidence();
+    TestHotReloadRevokesExistingProcessEvidence();
     TestConcurrentFeedNamespaceIsolation();
     TestCidrAddressBoundaries();
     TestCidrOverlapDoesNotInflateScore();
@@ -1339,5 +1510,23 @@ void RunThreatIntelCidrRuleTests(const char* rulesPath) {
     engine.OnEvent(connect);
     TI_CHECK(hashAlerts == 1);
     TI_CHECK(networkAlerts == 3);
+    edr::ThreatIntelDetector lifecycle(true, 55, 300, 1024);
+    TI_CHECK(lifecycle.LoadIndicators(WriteFeed(kLifecycleEvidenceFeed), error));
+    auto liveDomain = DnsQuery("c2.example.test", 6206, kLifecycleEpoch + kSecond);
+    SetReliableProcessIdentity(liveDomain, 5678, "endpoint-B", "dns");
+    lifecycle.Enrich(liveDomain);
+    engine.OnEvent(liveDomain);
+    TI_CHECK(hashAlerts == 1 && networkAlerts == 4);
+    auto liveHash = ProcessStart("test.exe", "test.exe", std::string(64, 'a'),
+        6206, kLifecycleEpoch + 3 * kSecond);
+    SetReliableProcessIdentity(liveHash, 5678, "endpoint-B", "driver");
+    lifecycle.Enrich(liveHash);
+    engine.OnEvent(liveHash);
+    TI_CHECK(hashAlerts == 2 && networkAlerts == 5);
+    auto afterExpiry = NetConnect("203.0.113.77", 6206, kLifecycleEpoch + 4 * kSecond);
+    SetReliableProcessIdentity(afterExpiry, 5678, "endpoint-B", "network");
+    lifecycle.Enrich(afterExpiry);
+    engine.OnEvent(afterExpiry);
+    TI_CHECK(hashAlerts == 2 && networkAlerts == 6);
     std::fprintf(stderr, "[threat_intel] production rule integration passed\n");
 }

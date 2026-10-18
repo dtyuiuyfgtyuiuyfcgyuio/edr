@@ -87,20 +87,27 @@ private:
         std::string source;     /* feed / provider attribution */
         std::string threat;     /* family or campaign name, optional */
         int baseScore = 0;
+        uint64_t validFrom100ns = 0;  /* zero means no lower bound */
+        uint64_t validUntil100ns = 0; /* zero means no upper bound */
+        bool revoked = false;
+
+        bool IsActive(uint64_t eventTime100ns) const {
+            if (revoked) return false;
+            if (eventTime100ns == 0)
+                return validFrom100ns == 0 && validUntil100ns == 0;
+            return eventTime100ns >= validFrom100ns &&
+                (validUntil100ns == 0 || eventTime100ns < validUntil100ns);
+        }
     };
 
     struct ProcessState {
         uint64_t lastSeen100ns = 0;
         uint32_t pid = 0;
         std::string endpointId;
-        int peakScore = 0; /* highest base score, excluding cross-type bonus */
-        /* Distinct indicator types seen for this process, so the consistency
-         * bonus is computed from breadth rather than raw hit count. */
-        uint8_t typeMask = 0;
-        std::vector<std::string> matchedIds;
-        std::vector<std::string> matchedTypes;
-        std::vector<std::string> matchedSources;
-        std::vector<std::string> matchedConfidences;
+        /* Pointers stay valid until an atomic feed replacement clears states.
+         * Retain the indicators themselves so expired evidence can be removed
+         * without discarding unrelated live evidence or cached score remnants. */
+        std::vector<const Indicator*> evidence;
     };
 
     void PurgeExpired(uint64_t now100ns);

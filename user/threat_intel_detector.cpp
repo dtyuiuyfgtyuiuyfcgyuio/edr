@@ -43,6 +43,7 @@
 
 #include "edr_event.h"
 #include "json_lite.h"
+#include "xml_util.h"
 
 namespace edr {
 namespace {
@@ -146,14 +147,6 @@ std::string Trim(const std::string& value) {
 std::string FieldValue(const Event& event, const char* name) {
     auto found = event.fields.find(name);
     return found == event.fields.end() ? std::string() : found->second;
-}
-
-uint64_t EventTime(const Event& event) {
-    if (event.ts100ns != 0) return event.ts100ns;
-    FILETIME now = {};
-    GetSystemTimePreciseAsFileTime(&now);
-    return (static_cast<uint64_t>(now.dwHighDateTime) << 32) |
-           now.dwLowDateTime;
 }
 
 bool IsHex(const std::string& value, size_t length) {
@@ -306,13 +299,36 @@ const jsonlite::Value& Required(const jsonlite::Value& object,
 
 void RequireExactKeys(const jsonlite::Value& object) {
     static const std::set<std::string> allowed = {
-        "id", "type", "value", "confidence", "source", "threat"
+        "id", "type", "value", "confidence", "source", "threat",
+        "valid_from", "valid_until", "revoked"
     };
     for (const auto& item : object.object) {
         if (allowed.count(item.first) == 0)
             throw std::runtime_error("unknown indicator field '" +
                                      item.first + "'");
     }
+}
+
+/* Reuse the Event Log UTC parser and Windows calendar validation. Accept
+ * seconds or 1-7 fractional digits; never truncate sub-FILETIME precision. */
+uint64_t IndicatorTime(const jsonlite::Value& entry, const char* name) {
+    const auto* value = entry.find(name);
+    if (value == nullptr) return 0;
+    if (value->type != jsonlite::Type::String)
+        throw std::runtime_error(std::string("indicator '") + name + "' must be a UTC timestamp");
+    std::string normalized = value->str;
+    if (normalized.size() == 20 && normalized.back() == 'Z') {
+        normalized.insert(19, ".0000000");
+    } else if (normalized.size() >= 22 && normalized.size() <= 28 &&
+               normalized[19] == '.' && normalized.back() == 'Z') {
+        normalized.insert(normalized.size() - 1, 28 - normalized.size(), '0');
+    } else {
+        throw std::runtime_error(std::string("indicator '") + name + "' must use YYYY-MM-DDTHH:mm:ss[.1-7 digits]Z");
+    }
+    const uint64_t parsed = ParseSystemTime100ns(std::wstring(normalized.begin(), normalized.end()));
+    if (parsed == 0)
+        throw std::runtime_error(std::string("indicator '") + name + "' has an invalid or zero FILETIME timestamp");
+    return parsed;
 }
 
 std::string Join(const std::vector<std::string>& values) {
@@ -507,6 +523,16 @@ bool ThreatIntelDetector::ApplyIndicators(const std::string& contents,
             indicator.confidence = confidence;
             indicator.source = source;
             indicator.threat = threatName;
+            indicator.validFrom100ns = IndicatorTime(entry, "valid_from");
+            indicator.validUntil100ns = IndicatorTime(entry, "valid_until");
+            if (indicator.validUntil100ns != 0 &&
+                indicator.validUntil100ns <= indicator.validFrom100ns)
+                throw std::runtime_error("indicator valid_until must be greater than valid_from");
+            if (const auto* revoked = entry.find("revoked")) {
+                if (revoked->type != jsonlite::Type::Bool)
+                    throw std::runtime_error("indicator revoked must be a boolean");
+                indicator.revoked = revoked->boolean;
+            }
 
             if (type == "sha256") {
                 const std::string value = LowerAscii(Trim(rawValue));
@@ -647,8 +673,8 @@ void ThreatIntelDetector::Enrich(Event& event) {
     }
     if (m_indicators.empty()) return;
 
-    const uint64_t now = EventTime(event);
-    PurgeExpired(now);
+    const uint64_t now = event.ts100ns;
+    if (now != 0) PurgeExpired(now);
     if (event.pid == 0) return;
 
     /* Collect every indicator this event references. One event can legitimately
@@ -724,13 +750,20 @@ void ThreatIntelDetector::Enrich(Event& event) {
     default:
         return;
     }
+    hits.erase(std::remove_if(hits.begin(), hits.end(),
+        [now](const Indicator* indicator) { return !indicator->IsActive(now); }), hits.end());
     if (hits.empty()) return;
 
     std::string stateKey;
     std::string endpointId;
     bool exactIdentity = false;
-    const bool retainState =
+    bool retainState = now != 0 &&
         ProcessStateKey(event, stateKey, endpointId, exactIdentity);
+    if (retainState) {
+        const auto previous = m_states.find(stateKey);
+        if (previous != m_states.end() && now < previous->second.lastSeen100ns)
+            retainState = false; // A replay cannot borrow or overwrite future evidence.
+    }
     ProcessState eventState;
     ProcessState* statePointer = &eventState;
     if (retainState) {
@@ -751,9 +784,16 @@ void ThreatIntelDetector::Enrich(Event& event) {
     ProcessState& state = *statePointer;
     state.lastSeen100ns = now;
 
-    uint8_t typeMask = state.typeMask;
-    int peak = state.peakScore;
+    state.evidence.erase(std::remove_if(state.evidence.begin(), state.evidence.end(),
+        [now](const Indicator* indicator) { return !indicator->IsActive(now); }), state.evidence.end());
     for (const Indicator* indicator : hits) {
+        if (std::find(state.evidence.begin(), state.evidence.end(), indicator) == state.evidence.end())
+            state.evidence.push_back(indicator);
+    }
+    uint8_t typeMask = 0;
+    int peak = 0;
+    std::vector<std::string> matchedIds, matchedTypes, matchedSources, matchedConfidences;
+    for (const Indicator* indicator : state.evidence) {
         peak = std::max(peak, indicator->baseScore);
         typeMask |= static_cast<uint8_t>(1u << static_cast<unsigned>(indicator->type));
         const std::string typeName = [](IndicatorType type) {
@@ -767,16 +807,12 @@ void ThreatIntelDetector::Enrich(Event& event) {
             }
             return std::string("unknown");
         }(indicator->type);
-        if (std::find(state.matchedIds.begin(), state.matchedIds.end(),
-                      indicator->id) == state.matchedIds.end()) {
-            state.matchedIds.push_back(indicator->id);
-            state.matchedTypes.push_back(typeName);
-            state.matchedSources.push_back(indicator->source);
-            state.matchedConfidences.push_back(indicator->confidence);
-        }
+        matchedIds.push_back(indicator->id);
+        matchedTypes.push_back(typeName);
+        matchedSources.push_back(indicator->source);
+        matchedConfidences.push_back(indicator->confidence);
     }
 
-    state.typeMask = typeMask;
     int distinctTypes = 0;
     for (int bit = 0; bit < 8; ++bit) {
         if (typeMask & (1u << bit)) ++distinctTypes;
@@ -784,7 +820,6 @@ void ThreatIntelDetector::Enrich(Event& event) {
     int score = peak;
     if (distinctTypes > 1) score += kCrossTypeBonus * (distinctTypes - 1);
     score = std::min(100, score);
-    state.peakScore = peak;
 
     /* Never write a verdict below the operator threshold; downstream rules
      * match a score band and a sub-threshold verdict would be misleading. */
@@ -796,13 +831,13 @@ void ThreatIntelDetector::Enrich(Event& event) {
     event.fields[field::kThreatIntelScore] = std::to_string(score);
     event.fields[field::kThreatIntelVerdict] = score >= 75 ? "MALICIOUS"
                                                            : "SUSPICIOUS";
-    event.fields[field::kThreatIntelSignals] = Join(state.matchedTypes);
-    event.fields[field::kThreatIntelIocIds] = Join(state.matchedIds);
-    event.fields[field::kThreatIntelIocTypes] = Join(state.matchedTypes);
-    event.fields[field::kThreatIntelIocSources] = Join(state.matchedSources);
-    event.fields[field::kThreatIntelIocConfidence] = Join(state.matchedConfidences);
+    event.fields[field::kThreatIntelSignals] = Join(matchedTypes);
+    event.fields[field::kThreatIntelIocIds] = Join(matchedIds);
+    event.fields[field::kThreatIntelIocTypes] = Join(matchedTypes);
+    event.fields[field::kThreatIntelIocSources] = Join(matchedSources);
+    event.fields[field::kThreatIntelIocConfidence] = Join(matchedConfidences);
     event.fields[field::kThreatIntelIocCount] =
-        std::to_string(state.matchedIds.size());
+        std::to_string(matchedIds.size());
     if (!m_feedName.empty())
         event.fields[field::kThreatIntelFeed] = m_feedName;
     if (retainState) EvictOldest(m_states, m_stateCapacity);

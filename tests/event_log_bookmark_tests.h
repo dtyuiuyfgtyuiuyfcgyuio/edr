@@ -1,0 +1,6 @@
+#ifndef EDR_EVENT_LOG_BOOKMARK_TESTS_H
+#define EDR_EVENT_LOG_BOOKMARK_TESTS_H
+
+void RunEventLogBookmarkTests();
+
+#endif /* EDR_EVENT_LOG_BOOKMARK_TESTS_H */

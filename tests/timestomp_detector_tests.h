@@ -1,0 +1,6 @@
+#ifndef EDR_TIMESTOMP_DETECTOR_TESTS_H
+#define EDR_TIMESTOMP_DETECTOR_TESTS_H
+
+void RunTimestompDetectorTests();
+
+#endif // EDR_TIMESTOMP_DETECTOR_TESTS_H

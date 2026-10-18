@@ -1,0 +1,6 @@
+#ifndef EDR_PORT_SCAN_DETECTOR_TESTS_H
+#define EDR_PORT_SCAN_DETECTOR_TESTS_H
+
+void RunPortScanDetectorTests();
+
+#endif /* EDR_PORT_SCAN_DETECTOR_TESTS_H */

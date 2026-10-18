@@ -1,0 +1,6 @@
+#ifndef EDR_ENDPOINT_IDENTITY_TESTS_H
+#define EDR_ENDPOINT_IDENTITY_TESTS_H
+
+void RunEndpointIdentityTests();
+
+#endif /* EDR_ENDPOINT_IDENTITY_TESTS_H */

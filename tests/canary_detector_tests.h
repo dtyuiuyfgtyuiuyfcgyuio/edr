@@ -1,0 +1,6 @@
+#ifndef EDR_CANARY_DETECTOR_TESTS_H
+#define EDR_CANARY_DETECTOR_TESTS_H
+
+void RunCanaryDetectorTests();
+
+#endif // EDR_CANARY_DETECTOR_TESTS_H

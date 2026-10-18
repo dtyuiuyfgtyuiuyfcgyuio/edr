@@ -1,0 +1,6 @@
+#ifndef EDR_MASQUERADE_DETECTOR_TESTS_H
+#define EDR_MASQUERADE_DETECTOR_TESTS_H
+
+void RunMasqueradeDetectorTests();
+
+#endif // EDR_MASQUERADE_DETECTOR_TESTS_H

@@ -1,0 +1,6 @@
+#ifndef EDR_COR_PROFILER_HIJACK_DETECTOR_TESTS_H
+#define EDR_COR_PROFILER_HIJACK_DETECTOR_TESTS_H
+
+void RunCorProfilerHijackDetectorTests();
+
+#endif

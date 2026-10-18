@@ -1,0 +1,6 @@
+#ifndef EDR_AV_TAMPER_DETECTOR_TESTS_H
+#define EDR_AV_TAMPER_DETECTOR_TESTS_H
+
+void RunAvTamperDetectorTests();
+
+#endif // EDR_AV_TAMPER_DETECTOR_TESTS_H

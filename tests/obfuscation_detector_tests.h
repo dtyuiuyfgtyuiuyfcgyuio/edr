@@ -1,0 +1,6 @@
+#ifndef EDR_OBFUSCATION_DETECTOR_TESTS_H
+#define EDR_OBFUSCATION_DETECTOR_TESTS_H
+
+void RunObfuscationDetectorTests();
+
+#endif // EDR_OBFUSCATION_DETECTOR_TESTS_H

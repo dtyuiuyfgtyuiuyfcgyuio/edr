@@ -1,0 +1,2159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EDR Console</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #0d1117; color: #c9d1d9; font: 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 20px; }
+button, input, select, textarea { font: inherit; }
+.header, .header-right, .tabs, .filters, .stats, .response-grid { display: flex; gap: 12px; }
+.header { align-items: center; flex-wrap: wrap; justify-content: space-between; margin-bottom: 18px; }
+h1 { color: #58a6ff; font-size: 24px; }
+.header-right, .filters { align-items: center; flex-wrap: wrap; }
+.status { border-radius: 12px; font-size: 12px; padding: 5px 12px; }
+.status.on { background: #1b3a1b; color: #3fb950; }
+.status.off { background: #3a1b1b; color: #f85149; }
+.input, select, textarea { background: #161b22; border: 1px solid #30363d; border-radius: 6px; color: #c9d1d9; padding: 7px 11px; }
+.input { min-width: 180px; }
+.tabs { border-bottom: 1px solid #30363d; margin-bottom: 18px; }
+.tab { background: transparent; border: 0; border-bottom: 2px solid transparent; color: #8b949e; cursor: pointer; padding: 10px 15px; }
+.tab.active { border-color: #58a6ff; color: #f0f6fc; }
+.tab { flex: 0 0 auto; }
+.view { display: none; }
+.view.active { display: block; }
+.stats { flex-wrap: wrap; margin-bottom: 18px; }
+.stat, .panel { background: #161b22; border: 1px solid #30363d; border-radius: 6px; }
+.stat { flex: 1; min-width: 105px; padding: 12px 20px; }
+.stat .num { font-size: 27px; font-weight: 700; }
+.stat .label { color: #8b949e; font-size: 12px; text-transform: uppercase; }
+.sev-high .num, .sev-critical .num { color: #f85149; }
+.sev-medium .num { color: #d29922; }
+.sev-low .num { color: #58a6ff; }
+.filters { margin-bottom: 14px; }
+.btn { background: #238636; border: 0; border-radius: 6px; color: #fff; cursor: pointer; padding: 7px 15px; }
+.btn:hover { filter: brightness(1.12); }
+.btn:disabled { cursor: wait; filter: none; opacity: .65; }
+.btn-secondary { background: #30363d; }
+.btn-danger { background: #da3633; }
+.table-wrap { border: 1px solid #30363d; border-radius: 6px; max-height: calc(100vh - 300px); overflow: auto; }
+table { border-collapse: collapse; font-size: 13px; width: 100%; }
+th { background: #161b22; color: #8b949e; position: sticky; text-align: left; top: 0; }
+td, th { border-bottom: 1px solid #21262d; max-width: 360px; overflow: hidden; padding: 9px 12px; text-overflow: ellipsis; white-space: nowrap; }
+tbody tr:hover td { background: #1c2128; }
+.rule, code { color: #7ee787; font-family: "Cascadia Code", Consolas, monospace; }
+.muted { color: #8b949e; }
+.tree-row { border-bottom: 1px solid #21262d; cursor: pointer; padding: 9px 12px; }
+.tree-row:hover { background: #1c2128; }
+.tree-meta { color: #8b949e; font-size: 12px; margin-left: 10px; }
+.process-layout { display: grid; gap: 14px; grid-template-columns: minmax(280px, 1fr) minmax(360px, 1.2fr); }
+.panel { min-height: 220px; overflow: auto; padding: 14px; }
+.panel h2 { color: #58a6ff; font-size: 16px; margin-bottom: 12px; }
+.response-grid { align-items: flex-start; flex-wrap: wrap; }
+.response-form { flex: 1; min-width: 300px; }
+.response-form label { color: #8b949e; display: block; font-size: 12px; margin: 12px 0 5px; }
+.response-form textarea, .response-form .input { width: 100%; }
+.preview { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; flex: 1; min-height: 250px; min-width: 300px; overflow: auto; padding: 16px; white-space: pre-wrap; }
+.notice { border-left: 3px solid #d29922; color: #d29922; margin-bottom: 15px; padding: 8px 12px; }
+.modal { align-items: center; background: rgba(0,0,0,.75); display: none; inset: 0; justify-content: center; position: fixed; z-index: 20; }
+.modal.show { display: flex; }
+.modal-card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; max-height: 88vh; max-width: 920px; overflow: auto; padding: 22px; width: 94%; }
+.modal-heading { align-items: flex-start; display: flex; gap: 16px; justify-content: space-between; }
+.modal-heading h2 { color: #f0f6fc; font-size: 18px; overflow-wrap: anywhere; }
+.modal-section { border-top: 1px solid #30363d; margin-top: 18px; padding-top: 16px; }
+.modal-section h3 { color: #58a6ff; font-size: 14px; margin-bottom: 10px; }
+.case-grid { display: grid; gap: 20px; grid-template-columns: minmax(260px, .8fr) minmax(320px, 1.2fr); }
+.field { margin-bottom: 11px; }
+.field label { color: #8b949e; display: block; font-size: 12px; margin-bottom: 5px; }
+.field input, .field select, .field textarea { width: 100%; }
+.form-status { font-size: 12px; margin-left: 8px; }
+.activity { max-height: 242px; overflow: auto; }
+.activity-row { border-bottom: 1px solid #21262d; padding: 9px 0; }
+.activity-row:last-child { border-bottom: 0; }
+.activity-meta { color: #8b949e; display: flex; font-size: 11px; gap: 8px; justify-content: space-between; }
+.activity-note { margin-top: 4px; overflow-wrap: anywhere; white-space: pre-wrap; }
+.badge { border: 1px solid #484f58; border-radius: 4px; display: inline-block; font-size: 11px; padding: 2px 6px; }
+.status-new { color: #c9d1d9; }
+.status-investigating { border-color: #d29922; color: #e3b341; }
+.status-resolved { border-color: #238636; color: #3fb950; }
+.status-false_positive { border-color: #8b949e; color: #8b949e; }
+.state-recent { color: #3fb950; }
+.state-stale { color: #d29922; }
+.state-inactive, .state-unknown { color: #8b949e; }
+.risk-critical, .risk-high { color: #f85149; font-weight: 600; }
+.risk-medium { color: #d29922; font-weight: 600; }
+.risk-low { color: #58a6ff; }
+.hunt-grid { display: grid; gap: 10px; grid-template-columns: repeat(6, minmax(120px, 1fr)); margin-bottom: 14px; }
+.hunt-grid .wide { grid-column: span 2; }
+.hunt-grid input, .hunt-grid select { min-width: 0; width: 100%; }
+.mitre { display: inline-block; background: #1a3a1a; color: #3fb950; border: 1px solid #238636; border-radius: 4px; font-size: 11px; padding: 2px 6px; margin: 1px; font-family: "Cascadia Code", Consolas, monospace; }
+.mitre-cell { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.modal-card pre { background: #0d1117; margin-top: 12px; overflow: auto; padding: 12px; white-space: pre-wrap; }
+.mitre-list { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0; }
+.mitre-list span { background: #1a3a1a; color: #3fb950; border: 1px solid #238636; border-radius: 4px; font-size: 11px; padding: 2px 6px; font-family: "Cascadia Code", Consolas, monospace; }
+.tactic-list { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0; }
+.tactic-list span { background: #2d1a3a; color: #bc8cff; border: 1px solid #8b5cf6; border-radius: 4px; font-size: 11px; padding: 2px 6px; font-family: "Cascadia Code", Consolas, monospace; }
+#trendChart { height: 240px; }
+.trend-bars { display: flex; gap: 3px; height: 200px; }
+.trend-col { display: flex; flex: 1; flex-direction: column; height: 100%; min-width: 0; }
+.trend-track { align-items: flex-end; display: flex; flex: 1; }
+.trend-bar { background: #58a6ff; border-radius: 2px 2px 0 0; min-height: 2px; width: 100%; }
+.trend-col:hover .trend-bar { background: #79c0ff; }
+.trend-bar-label { color: #8b949e; font-size: 10px; overflow: hidden; padding-top: 4px; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
+.overview-sub { color: #8b949e; font-size: 12px; margin: 14px 0 8px; text-transform: uppercase; }
+@media (max-width: 760px) {
+    body { padding: 12px; }
+    .header-right, .input { width: 100%; }
+    .process-layout { grid-template-columns: 1fr; }
+    .table-wrap { max-height: calc(100vh - 340px); }
+    .optional-col { display: none; }
+    .tabs { overflow-x: auto; }
+    .case-grid, .hunt-grid { grid-template-columns: 1fr; }
+    .hunt-grid .wide { grid-column: auto; }
+    .modal-card { padding: 16px; }
+}
+</style>
+</head>
+<body>
+<header class="header">
+    <h1>EDR Console</h1>
+    <div class="header-right">
+        <input id="readKey" class="input" type="password" autocomplete="off" placeholder="Read API key">
+        <button class="btn" onclick="applyReadKey()">Connect</button>
+        <span id="status" class="status off">disconnected</span>
+    </div>
+</header>
+<nav class="tabs">
+    <button class="tab active" data-view="alertsView">Alerts</button>
+    <button class="tab" data-view="endpointsView">Endpoints</button>
+    <button class="tab" data-view="eventsView">Event Hunt</button>
+    <button class="tab" data-view="processView">Process tree &amp; timeline</button>
+    <button class="tab" data-view="responseView">Response</button>
+<button class="tab" data-view="incidentsView">Incidents</button>
+<button class="tab" data-view="threatIntelView">Threat Intel</button>
+    <button class="tab" data-view="systemView">System</button>
+    <button class="tab" data-view="rulesView">Rules</button>
+<button class="tab" data-view="coverageView">Coverage</button>
+    <button class="tab" data-view="evidenceView">Evidence</button>
+    <button class="tab" data-view="exportView">Export</button>
+    <button class="tab" data-view="overviewView">Overview</button>
+</nav>
+
+<main id="alertsView" class="view active">
+    <div id="stats" class="stats"></div>
+    <div class="filters">
+        <input id="search" class="input" placeholder="Search alerts" oninput="filterAlerts()">
+        <select id="severity" onchange="applyAlertFilters()"><option value="">All severities</option><option>critical</option><option>high</option><option>medium</option><option>low</option><option>info</option></select>
+        <select id="triageStatus" onchange="applyAlertFilters()"><option value="">All statuses</option><option value="new">New</option><option value="investigating">Investigating</option><option value="resolved">Resolved</option><option value="false_positive">False positive</option></select>
+        <select id="priority" onchange="applyAlertFilters()"><option value="">All priorities</option><option value="urgent">Urgent</option><option value="high">High</option><option value="normal">Normal</option><option value="low">Low</option></select>
+        <select id="assignee" onchange="applyAlertFilters()"><option value="">All assignees</option></select>
+        <input id="since" class="input" type="datetime-local" title="Since" onchange="applyAlertFilters()">
+        <input id="until" class="input" type="datetime-local" title="Until" onchange="applyAlertFilters()">
+        <select id="rule" onchange="applyAlertFilters()"><option value="">All rules</option></select>
+        <select id="mitreTactic" onchange="applyAlertFilters()"><option value="">All tactics</option></select>
+        <button class="btn" onclick="refreshAll()">Refresh</button>
+    </div>
+    <div class="filters" id="bulkBar" style="display:none;background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px 14px;margin-bottom:14px">
+        <span id="bulkCount" class="muted">0 selected</span>
+        <select id="bulkStatus"><option value="new">New</option><option value="investigating">Investigating</option><option value="resolved">Resolved</option><option value="false_positive">False positive</option></select>
+        <input id="bulkAssignee" class="input" style="min-width:120px" placeholder="Assign to">
+        <select id="bulkPriority"><option value="">No change</option><option value="urgent">Urgent</option><option value="high">High</option><option value="normal">Normal</option><option value="low">Low</option></select>
+        <input id="bulkAdminKey" class="input" type="password" style="min-width:130px" placeholder="Admin key">
+        <button id="bulkApplyBtn" class="btn" onclick="bulkTriage()">Apply to selected</button>
+        <button class="btn btn-secondary" onclick="clearBulkSelection()">Clear</button>
+        <span id="bulkResult" class="form-status muted"></span>
+    </div>
+    <div class="filters" id="playbookBar" style="display:none;background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px 14px;margin-bottom:14px">
+        <span class="muted">Playbook</span>
+        <select id="playbookSelect" style="min-width:260px"><option value="">Loading playbooks...</option></select>
+        <button id="playbookRunBtn" class="btn" onclick="runPlaybook()">Run playbook</button>
+        <span id="playbookStatus" class="form-status muted"></span>
+    </div>
+    <div id="playbookProgress" class="panel" style="display:none;margin-bottom:14px">
+        <h2>Playbook execution <span id="playbookProgressHint" class="muted" style="font-size:12px;font-weight:400"></span></h2>
+        <div id="playbookProgressBody" class="muted" style="white-space:pre-wrap;word-break:break-all"></div>
+        <div id="playbookSteps" style="margin-top:10px"></div>
+        <div class="muted" style="font-size:12px;margin-top:8px">Results refresh <code>Response history</code> (<code>GET /api/response/audit</code>) and <code>Alerts</code>. On <code>failure</code> / <code>outcome_unknown</code> / <code>uncertain</code> please reconcile manually in Response history; no automatic retry.</div>
+    </div>
+    <div class="table-wrap"><table>
+        <thead><tr><th><input type="checkbox" id="selectAll" onclick="toggleSelectAll(this)"></th><th>Time</th><th>Rule</th><th>Severity</th><th>Status</th><th>Priority</th><th>Assignee</th><th>Type</th><th>Process / Output</th><th class="optional-col">MITRE</th><th class="optional-col">Source</th></tr></thead>
+        <tbody id="alerts"><tr><td colspan="11" class="muted">No alerts</td></tr></tbody>
+    </table></div>
+    <div class="filters">
+        <button class="btn" id="alertsPrev" onclick="alertsPage(-1)">Prev</button>
+        <span id="alertsPageInfo" class="muted">Page 1 / 1</span>
+        <button class="btn" id="alertsNext" onclick="alertsPage(1)">Next</button>
+        <span class="muted">(server-side pagination, 100/page)</span>
+    </div>
+</main>
+
+<main id="endpointsView" class="view">
+    <div class="filters">
+        <input id="endpointSearch" class="input" placeholder="Host or source ID" onkeydown="if(event.key==='Enter')loadEndpoints()">
+        <select id="endpointState" onchange="loadEndpoints()"><option value="">All telemetry states</option><option value="recent">Recent</option><option value="stale">Stale</option><option value="inactive">Inactive</option><option value="unknown">Unknown</option></select>
+        <button class="btn" onclick="loadEndpoints()">Refresh</button>
+        <span id="endpointCount" class="muted"></span>
+    </div>
+    <div class="table-wrap"><table>
+        <thead><tr><th>Host</th><th>Source ID</th><th>Risk</th><th>Telemetry</th><th>Open / Alerts</th><th>Events</th><th class="optional-col">Processes</th><th>Last seen</th><th>Actions</th></tr></thead>
+        <tbody id="endpoints"><tr><td colspan="9" class="muted">No endpoints</td></tr></tbody>
+    </table></div>
+</main>
+
+<main id="eventsView" class="view">
+    <form class="hunt-grid" onsubmit="event.preventDefault();loadEvents()">
+        <input id="eventQuery" class="input wide" placeholder="Search image, path, hash, host, IP or domain">
+        <input id="eventType" class="input" list="eventTypes" placeholder="Event type">
+        <datalist id="eventTypes">
+            <option value="PROCESS_START"><option value="PROCESS_STOP">
+            <option value="REG_WRITE"><option value="REG_DELETE">
+            <option value="FILE_CREATE"><option value="FILE_DELETE">
+            <option value="FILE_RENAME"><option value="FILE_READ">
+            <option value="NET_CONNECT"><option value="DNS_QUERY">
+            <option value="IMAGE_LOAD"><option value="PROCESS_ACCESS">
+            <option value="PROCESS_READ"><option value="LOGON">
+            <option value="ACCOUNT_CHANGE"><option value="SERVICE_INSTALL">
+            <option value="WMI_EVENT"><option value="TASK_SCHEDULER">
+            <option value="PRIVILEGE"><option value="POWERSHELL_SCRIPT">
+            <option value="NAMED_PIPE"><option value="HANDLE_OPEN">
+            <option value="LOCAL_ACCOUNT"><option value="FIREWALL_RULE">
+            <option value="APC_INJECT"><option value="CONTEXT_CHANGE">
+            <option value="MEMORY_WRITE"><option value="STATS">
+            <option value="FALCO_ALERT"><option value="FILE_INTEGRITY">
+            <option value="USB_DEVICE"><option value="LISTENER">
+            <option value="SERVICE_STATE"><option value="CRITICAL_PROCESS">
+            <option value="STARTUP_ITEM"><option value="SMB_SHARE">
+            <option value="IMAGE_LOAD"><option value="THREAD_CREATE">
+            <option value="DEFENDER_DETECTION"><option value="SECURITY_LOG">
+        </datalist>
+        <input id="eventSource" class="input" placeholder="Source ID">
+        <input id="eventProcess" class="input wide" placeholder="Process instance key">
+        <input id="eventSince" class="input" type="datetime-local" title="Since">
+        <input id="eventUntil" class="input" type="datetime-local" title="Until">
+        <select id="eventLimit"><option value="100">100 results</option><option value="200" selected>200 results</option><option value="500">500 results</option><option value="1000">1000 results</option></select>
+        <button class="btn" type="submit">Hunt</button>
+    </form>
+    <div class="filters"><span id="eventCount" class="muted"></span><span id="eventError" class="muted"></span></div>
+    <div class="table-wrap"><table>
+        <thead><tr><th>Time</th><th>Type</th><th>Summary</th><th class="optional-col">Source</th><th class="optional-col">Process instance</th><th>Event ID</th></tr></thead>
+        <tbody id="events"><tr><td colspan="6" class="muted">No events</td></tr></tbody>
+    </table></div>
+</main>
+
+<main id="processView" class="view">
+    <div class="filters"><button class="btn" onclick="loadProcesses()">Refresh processes</button><span id="processCount" class="muted"></span></div>
+    <div class="process-layout">
+        <section class="panel"><h2>Process tree</h2><div id="processTree" class="muted">No process events</div></section>
+        <section class="panel"><h2>Timeline</h2><div id="timeline" class="muted">Select a process instance</div></section>
+    </div>
+</main>
+
+<main id="responseView" class="view">
+    <div class="notice">Process termination/suspend/resume is real only when the native channel, native flag (EDR_ENABLE_PROCESS_TERMINATION / EDR_ENABLE_PROCESS_SUSPEND / EDR_ENABLE_PROCESS_RESUME), and console flag are all enabled and native capability is real; otherwise dry-run. Quarantine is always dry-run. Host isolation is manual only (via isolate/unisolate) and never auto-triggered; its readiness depends on EDR_ENABLE_HOST_ISOLATION, EDR_RESPONSE_CHANNEL_ENABLE, EDR_HOST_ISOLATION_MANAGEMENT_IP (exact match) and EDR_HOST_ISOLATION_ALLOWED_PORTS.</div>
+    <section class="panel" style="margin-top:14px">
+        <h2>Host isolation status (read-only)</h2>
+        <div class="filters">
+            <button class="btn btn-secondary" onclick="refreshIsolationStatus()">Refresh isolation status</button>
+            <span id="isolationReadiness" class="muted">Enter admin key and refresh</span>
+        </div>
+        <pre id="isolationStatus" class="preview" style="min-height:80px">Enter the admin key and click Refresh isolation status.</pre>
+        <div class="muted" style="font-size:12px;margin-top:8px">Read-only view via <code>GET /api/response/isolation/status</code> (admin). Isolate/Unisolate are manual-only via <code>POST /api/response/isolate</code> / <code>POST /api/response/unisolate</code>; management IP exact-match is enforced natively.</div>
+    </section>
+    <div class="response-grid" style="margin-top:14px">
+        <section class="panel response-form">
+            <h2>Response request</h2>
+            <label for="adminKey">Admin API key (memory only)</label>
+            <input id="adminKey" class="input" type="password" autocomplete="off" placeholder="Not stored" oninput="setAdminKey(this)">
+            <label for="action">Action</label>
+            <select id="action"><option value="terminate">Terminate process</option><option value="quarantine">Quarantine file</option><option value="suspend">Suspend process</option><option value="resume">Resume process</option><option value="isolate">Isolate host</option><option value="unisolate">Unisolate host</option></select>
+            <label for="target">Target identity JSON</label>
+            <textarea id="target" rows="5" placeholder='{"processKey":"sensor-...:guid:..."}' oninput="updatePreview(); updateResponseSubmitLock()"></textarea>
+            <label for="reason">Mandatory reason</label>
+            <textarea id="reason" rows="3" placeholder="Investigation reason" oninput="updatePreview()"></textarea>
+            <p style="margin-top:14px"><button id="responseSubmit" class="btn btn-danger" onclick="submitResponse()">Submit response request</button></p>
+            <div id="responseUncertain" class="notice" style="display:none; border-color:#f85149; color:#ffb3ad"></div>
+        </section>
+        <pre id="responsePreview" class="preview"></pre>
+    </div>
+    <section class="panel" id="deleteFileSection" style="margin-top:14px">
+        <h2>Delete file (manual — no auto-trigger)</h2>
+        <div class="muted" style="font-size:12px;margin-bottom:10px">Backend dependency: <code>POST /api/response/delete_file</code> (admin, <code>X-API-Key: adminApiKey</code> memory only, body {reason, target:{path, sha256}}) — triple-gated dry_run fallback; audit <code>uncertainTargets</code>. 原生 ValidDeletePath 兜底拒绝系统目录，前端 path 只读+sha256 必填双保险；不自动触发、不轮询。</div>
+        <div class="response-grid" style="margin-top:8px">
+            <section class="response-form" style="flex:1;min-width:300px">
+                <label for="deleteFilePath">File path (read-only, from alert)</label>
+                <input id="deleteFilePath" class="input" readonly placeholder="Select an alert containing sha256">
+                <label for="deleteFileSha256">SHA-256 (read-only, 64 hex from alert)</label>
+                <input id="deleteFileSha256" class="input" readonly placeholder="64 hex sha256 from alert event">
+                <label for="deleteFileReason">Mandatory reason</label>
+                <textarea id="deleteFileReason" rows="3" placeholder="Investigation reason" oninput="updateDeleteFileFormState()"></textarea>
+                <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:13px;color:#c9d1d9"><input id="deleteFileConfirm" type="checkbox" onchange="updateDeleteFileFormState()"> I confirm to delete this file (second confirmation)</label>
+                <p style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button id="deleteFileBtn" class="btn btn-danger" onclick="submitDeleteFile()">Delete file</button><span id="deleteFileHint" class="muted" style="font-size:12px"></span></p>
+            </section>
+            <pre id="deleteFileResult" class="preview" style="min-height:160px">Select an alert with 64hex sha256 to enable delete. Not auto-triggered; no polling.</pre>
+        </div>
+        <div class="muted" style="font-size:12px;margin-top:8px">仅对含 64hex sha256 的告警开放；path 仅回显不允许手输（防输错系统路径）；hash_mismatch/policy_rejected/delete_failed 红显，deleted/already_gone/scheduled_for_delete 正常展示，outcome_unknown 锁定并提示人工 reconcile 不自动重试；成功后刷新 <code>loadResponseAudit</code>。</div>
+    </section>
+    <section class="panel" style="margin-top:14px">
+        <h2>Response history</h2>
+        <div class="notice">An <code>outcome_unknown</code> result means the command may have executed. Reconcile it manually using endpoint state and native audit records; never retry blindly.</div>
+        <div class="filters">
+            <select id="responseAuditAction" onchange="responseAuditActionChanged()"><option value="">All actions</option><option value="terminate">Terminate</option><option value="quarantine">Quarantine</option><option value="suspend">Suspend</option><option value="resume">Resume</option><option value="isolate">Isolate</option><option value="unisolate">Unisolate</option></select>
+            <select id="responseAuditStatus" onchange="responseAuditOffset=0; loadResponseAudit()"><option value="">All statuses</option></select>
+            <button class="btn" onclick="responseAuditOffset=0; loadResponseAudit()">Refresh history</button>
+            <button id="responseAuditPrev" class="btn btn-secondary" onclick="changeResponseAuditPage(-1)">Previous</button>
+            <button id="responseAuditNext" class="btn btn-secondary" onclick="changeResponseAuditPage(1)">Next</button>
+            <span id="responseAuditCount" class="muted"></span>
+        </div>
+        <div class="table-wrap"><table>
+            <thead><tr><th>Time</th><th>Action</th><th>Status</th><th>Mode</th><th>Reason</th><th>Requested by</th><th>Target / Result</th></tr></thead>
+            <tbody id="responseAudit"><tr><td colspan="7" class="muted">Enter the admin key and refresh history</td></tr></tbody>
+        </table></div>
+    </section>
+</main>
+
+<main id="threatIntelView" class="view">
+    <div class="notice">Lookup file hashes, IP addresses, or domains against VirusTotal. Set EDR_THREAT_INTEL_API_KEY environment variable on the console to enable live queries. Results are cached for 24 hours.</div>
+    <div class="filters">
+        <select id="tiType"><option value="hash">SHA-256 / Hash</option><option value="ip">IP Address</option><option value="domain">Domain</option></select>
+        <input id="tiValue" class="input" placeholder="e.g. 44d88612fea8a5f6c92e32c2b88f1c2c5c9b4e76e7d28a3b3e9b8e7c5f4d2a1b" oninput="tiPreview()">
+        <button class="btn" onclick="tiLookup()">Lookup</button>
+        <button class="btn" onclick="loadTiCache()" style="background:#30363d">Cache stats</button>
+    </div>
+    <div class="response-grid">
+        <section class="panel response-form">
+            <h2>Threat Intelligence Lookup</h2>
+            <div id="tiSummary" style="margin-top:10px"></div>
+        </section>
+<pre id="tiResult" class="preview">Select a type, enter a value, and click Lookup.</pre>
+    </div>
+</main>
+
+<main id="incidentsView" class="view">
+    <div class="muted" style="font-size:12px;margin-bottom:10px">Correlated incidents (kill chains) — read-only; the native correlation engine owns them. Sources: <code>GET /api/incidents/summary</code>, <code>GET /api/incidents</code> (limit/offset/severity/state/host/tactic/q/min_score), <code>GET /api/incidents/:id</code>, <code>GET /api/incidents/:id/graph</code> (auth read, <code>X-API-Key: readKey</code> via <code>request()</code>). First/last seen are native FILETIME 100ns ticks. No response actions here — triage and处置 stay in Alerts / Response.</div>
+    <div id="incidentStats" class="stats"></div>
+    <div class="filters">
+        <input id="incidentSearch" class="input" placeholder="Search id / image / user / host / rule / tactic" maxlength="256">
+        <select id="incidentSeverity"><option value="">All severities</option><option>critical</option><option>high</option><option>medium</option><option>low</option><option>info</option></select>
+        <select id="incidentState"><option value="">Open &amp; closed</option><option value="open">Open</option><option value="closed">Closed</option></select>
+        <input id="incidentHost" class="input" placeholder="Host substring" maxlength="256">
+        <input id="incidentTactic" class="input" placeholder="Exact tactic e.g. Execution" maxlength="64">
+        <input id="incidentMinScore" class="input" type="number" min="0" max="100" step="1" placeholder="Min score" style="max-width:110px">
+        <button class="btn" id="incidentsRefresh">Refresh</button>
+        <span id="incidentSummary" class="muted"></span>
+    </div>
+    <div class="table-wrap"><table>
+        <thead><tr><th>State</th><th>Incident</th><th>Severity</th><th>Score</th><th>Alerts</th><th>First seen</th><th>Last seen</th><th>Host</th><th>Tactics</th><th class="optional-col">User</th><th class="optional-col">Rules</th></tr></thead>
+        <tbody id="incidentList"><tr><td colspan="11" class="muted">No incidents — click Refresh</td></tr></tbody>
+    </table></div>
+    <div class="filters">
+        <button class="btn" id="incidentsPrev">Prev</button>
+        <span id="incidentsPageInfo" class="muted">Page 1 / 1</span>
+        <button class="btn" id="incidentsNext">Next</button>
+        <span class="muted" style="font-size:12px">(read-only, server-side pagination 100/page, limit capped at LIMITS.queryLimit=1000)</span>
+    </div>
+    <section class="panel" id="incidentDetail" style="display:none;margin-top:14px">
+        <div class="modal-heading"><h2 id="incidentDetailHeading">Incident</h2><button class="btn btn-secondary" id="incidentDetailClose">Close</button></div>
+        <div id="incidentDetailBody" class="muted">Select an incident row to load its detail.</div>
+        <div class="modal-section"><h3>Attack chain <span class="muted" style="font-size:12px;font-weight:400">(<code>GET /api/incidents/:id/graph</code>)</span></h3><div id="incidentChainBody" class="muted">The chain loads together with the detail.</div></div>
+    </section>
+</main>
+
+<main id="overviewView" class="view">
+    <div id="overviewStats" class="stats"></div>
+    <section class="panel"><h2>Detection trend (last 24h)</h2><canvas id="trendChart"></canvas><div id="trendChartFallback"></div></section>
+    <section class="panel"><h2>Endpoint health</h2><div id="overviewEndpointHealth"></div></section>
+</main>
+
+<main id="systemView" class="view">
+    <div class="filters"><button class="btn" onclick="loadSystemStatus()">Refresh</button><span id="systemStatus" class="muted"></span></div>
+    <div id="systemStats" class="stats"></div>
+    <div class="response-grid" style="margin-top:14px">
+        <section class="panel response-form">
+            <h2>System Status</h2>
+            <div id="systemDetail" class="muted">Loading...</div>
+        </section>
+        <section class="panel response-form">
+            <h2>Top Rules (last 24h)</h2>
+            <div id="systemTopRules" class="muted">Loading...</div>
+        </section>
+    </div>
+</main>
+
+<main id="rulesView" class="view">
+    <div class="filters">
+        <input id="ruleSearch" class="input" placeholder="Search rule / technique / tactic" onkeydown="if(event.key==='Enter')loadRules()">
+        <select id="ruleSeverity" onchange="loadRules()"><option value="">All severities</option><option value="critical">Critical</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option><option value="info">Info</option></select>
+        <select id="ruleLimit"><option value="50">50 rules</option><option value="100" selected>100 rules</option><option value="200">200 rules</option></select>
+        <button class="btn" onclick="loadRules()">Refresh</button>
+        <span id="rulesCount" class="muted"></span>
+    </div>
+    <div class="table-wrap"><table>
+        <thead><tr><th>Rule</th><th>Count</th><th>Critical</th><th>High</th><th>Medium</th><th>Low</th><th>Open</th><th>Resolved</th><th>Actions</th><th class="optional-col">Endpoints</th><th class="optional-col">MITRE</th><th>Last seen</th></tr></thead>
+        <tbody id="rules"><tr><td colspan="12" class="muted">No rules</td></tr></tbody>
+    </table></div>
+    <section class="panel" style="margin-top:14px"><h2>MITRE ATT&CK Coverage</h2>
+        <div class="response-grid">
+            <section class="response-form"><h3>Tactics</h3><div id="mitreTactics" class="muted">No data</div></section>
+            <section class="response-form"><h3>Techniques</h3><div id="mitreTechniques" class="muted">No data</div></section>
+        </div>
+    </section>
+</main>
+
+<main id="coverageView" class="view">
+    <div class="filters">
+        <select id="coverageSeverity" onchange="loadCoverage()"><option value="">All severities</option><option value="critical">Critical</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option><option value="info">Info</option></select>
+        <input id="coverageTactic" class="input" placeholder="Tactic e.g. Execution" onkeydown="if(event.key==='Enter')loadCoverage()">
+        <input id="coverageSince" class="input" type="datetime-local" title="Since (alert time)">
+        <button class="btn" onclick="loadCoverage()">Refresh</button>
+        <button class="btn btn-secondary" onclick="exportCoverageCsv()">Export CSV</button>
+        <span id="coverageSummary" class="muted"></span>
+    </div>
+    <section class="panel">
+        <h2>Rule catalog coverage</h2>
+        <div id="coverageStats" class="muted">Loading...</div>
+    </section>
+    <section class="panel" style="margin-top:14px"><h2>Tactics &amp; techniques</h2>
+        <div class="table-wrap"><table>
+            <thead><tr><th>Tactic</th><th>Technique</th><th>Rules</th><th>Rule IDs</th></tr></thead>
+            <tbody id="coverageMatrix"><tr><td colspan="4" class="muted">No data</td></tr></tbody>
+        </table></div>
+    </section>
+    <div class="response-grid">
+        <section class="panel response-form" style="margin-top:14px"><h2>Never fired <button class="btn btn-secondary" style="padding:4px 8px;font-size:12px;margin-left:8px" onclick="exportCoverageGaps()">Export gaps</button></h2>
+            <div id="coverageNeverFired" class="muted">No data</div><div class="muted" style="font-size:11px;margin-top:6px">只读导出 — 依赖后端 <code>GET /api/rules/coverage/gaps/export</code> (auth read, <code>X-API-Key: readKey</code> via fetch blob) 复用 Export CSV 的 blob 下载模式；过滤条件复用现有过滤栏/分页不改。</div></section>
+        <section class="panel response-form" style="margin-top:14px"><h2>Reference gaps</h2>
+            <div id="coverageGaps" class="muted">No data</div><div class="muted" style="font-size:11px;margin-top:6px">只读展示 — 依赖后端 <code>GET /api/rules/coverage</code> 的 <code>gapsWithSuggestion</code> 字段（并行后端提供，每项含 <code>technique/configKey/detector</code> 启用建议，如 <code>T1486 → ransom_burst</code>；无建议项显示“暂无对应开关”）。复用 badge 样式。</div></section>
+    </div>
+</main>
+
+<main id="evidenceView" class="view">
+    <div class="notice">Forensic evidence — read-only. Evidence bundles are created by auto-response; this view only displays listed bundles and their manifests/files. No trigger actions here.</div>
+    <div class="muted" style="font-size:12px;margin-bottom:10px">Backend dependencies（三路由契约，均 auth read, <code>X-API-Key: readKey</code> memory only via <code>request()</code> / <code>sessionStorage edr_read_api_key</code>）：<code>GET /api/evidence</code> 拉列表（query: requestId/rule/severity/since/until），<code>GET /api/evidence/:id/manifest</code> 拉 manifest 展示 schema/文件清单，<code>GET /api/evidence/:id/file?file=&lt;allowlist&gt;</code> 下载单文件（allowlist: snapshot.txt/process_tree.json/alert.json/response.json/manifest.json，fetch+X-API-Key blob 下载，复用 exportCoverageCsv 模式）；失败显示 unavailable 文案不自动重试；禁止任何触发动作。</div>
+    <div class="filters">
+        <input id="evidenceRequestId" class="input" placeholder="Request ID" onkeydown="if(event.key==='Enter')loadEvidence()">
+        <input id="evidenceRule" class="input" placeholder="Rule" onkeydown="if(event.key==='Enter')loadEvidence()">
+        <select id="evidenceSeverity" onchange="loadEvidence()"><option value="">All severities</option><option value="critical">Critical</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option><option value="info">Info</option></select>
+        <input id="evidenceSince" class="input" type="datetime-local" title="Since">
+        <input id="evidenceUntil" class="input" type="datetime-local" title="Until">
+        <button class="btn" onclick="evidenceOffset=0; loadEvidence()">Refresh</button>
+        <span id="evidenceSummary" class="muted"></span>
+    </div>
+    <div class="table-wrap"><table>
+        <thead><tr><th>Time</th><th>Request ID</th><th>Rule</th><th>Severity</th><th>Evidence path</th><th>Actions</th></tr></thead>
+        <tbody id="evidenceList"><tr><td colspan="6" class="muted">No evidence — click Refresh</td></tr></tbody>
+    </table></div>
+    <div class="filters">
+        <button class="btn" id="evidencePrev" onclick="evidencePage(-1)">Prev</button>
+        <span id="evidencePageInfo" class="muted">Page 1 / 1</span>
+        <button class="btn" id="evidenceNext" onclick="evidencePage(1)">Next</button>
+        <span class="muted" style="font-size:12px">(read-only, server-side pagination 100/page if backend supports; otherwise client view)</span>
+    </div>
+    <section class="panel" id="evidenceDetail" style="margin-top:14px; display:none">
+        <h2>Manifest <span id="evidenceDetailHint" class="muted" style="font-size:12px;font-weight:400"></span></h2>
+        <div class="muted" style="font-size:12px;margin-bottom:8px">只读展示 — 来源 <code>GET /api/evidence/:id/manifest</code>；五个文件各有下载按钮（<code>GET /api/evidence/:id/file?file=</code> allowlist，fetch+X-API-Key blob 下载）。playbookProgress 只读卡风格复用：失败显示 unavailable 不自动重试。</div>
+        <div id="evidenceManifest" class="muted">Select an evidence entry to view manifest.</div>
+        <div id="evidenceFiles" style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap"></div>
+        <pre id="evidenceManifestRaw" class="preview" style="min-height:120px; margin-top:12px">No manifest loaded</pre>
+    </section>
+</main>
+
+<main id="exportView" class="view">
+    <div class="notice">Export alerts and events as CSV files for external analysis.</div>
+    <div class="response-grid">
+        <section class="panel response-form">
+            <h2>Export Alerts</h2>
+            <div class="field"><label>Severity filter</label>
+                <select id="exportSeverity"><option value="">All severities</option><option>critical</option><option>high</option><option>medium</option><option>low</option><option>info</option></select></div>
+            <div class="field"><label>Status filter</label>
+                <select id="exportStatus"><option value="">All statuses</option><option value="new">New</option><option value="investigating">Investigating</option><option value="resolved">Resolved</option><option value="false_positive">False positive</option></select></div>
+            <p style="margin-top:14px"><button class="btn" onclick="exportAlerts()">Download Alerts CSV</button></p>
+        </section>
+        <section class="panel response-form">
+            <h2>Export Events</h2>
+            <div class="field"><label>Event type filter</label>
+                <input id="exportEventType" class="input" list="eventTypes" placeholder="All event types"></div>
+            <div class="field"><label>Source ID filter</label>
+                <input id="exportSourceId" class="input" placeholder="All sources"></div>
+            <p style="margin-top:14px"><button class="btn" onclick="exportEvents()">Download Events CSV</button></p>
+        </section>
+    </div>
+</main>
+
+<div id="modal" class="modal" onclick="if(event.target===this)closeModal()"><div class="modal-card"><div class="modal-heading"><h2 id="modalTitle"></h2><button class="btn btn-secondary" onclick="closeModal()">Close</button></div><div id="modalBody"></div></div></div>
+
+<script src="vendor/chart.umd.min.js"></script>
+<script>
+let alerts = [];
+let alertsTotal = 0;
+let alertsOffset = 0;
+const ALERTS_PAGE_SIZE = 100;
+let knownRules = new Set();
+let knownTactics = new Set();
+let endpointData = [];
+let huntedEvents = [];
+let readKey = sessionStorage.getItem('edr_read_api_key') || localStorage.getItem('edr_api_key') || '';
+let adminApiKey = '';
+// SOAR playbook state - manual trigger only, no auto execution/polling (depends on backend GET /api/playbooks, POST /api/playbooks/:id/run)
+let playbooks = [];
+let playbookRunInFlight = false;
+let currentAlertCaseId = '';
+let responseAuditOffset = 0;
+let responseAuditHasMore = false;
+const RESPONSE_AUDIT_PAGE_SIZE = 100;
+const uncertainResponseTargets = new Map();
+let displayedUncertainFingerprint = '';
+let responseSubmissionInFlight = false;
+// --- Delete file (manual) frontend ---
+// Backend dependency: POST /api/response/delete_file (admin, X-API-Key memory adminApiKey, body {reason, target:{path, sha256}}) — Backend agent owns console/server.js triple-gated dry_run fallback + audit uncertainTargets;原生 ValidDeletePath 兜底 — exactKeys ['reason','target'] / ['path','sha256']
+let deleteFileInFlight = false;
+function extractSha256FromAlert(alert){
+    if(!alert) return '';
+    const ev = alert.event || {};
+    const candidates = [ev.sha256, ev.sha256_hash, ev.file_sha256, ev.fileHash, ev.file_hash, ev.hash, ev.Hashes, ev.fileHashes, alert.sha256, alert.file_sha256];
+    for(const v of candidates){
+        if(typeof v === 'string' && v){
+            const m = v.match(/[a-f0-9]{64}/i);
+            if(m && /^[a-f0-9]{64}$/i.test(m[0])) return m[0].toLowerCase();
+            if(/^[a-f0-9]{64}$/i.test(v.trim())) return v.trim().toLowerCase();
+        }
+    }
+    for(const val of Object.values(ev)){
+        if(typeof val === 'string' && /^[a-f0-9]{64}$/i.test(val.trim())) return val.trim().toLowerCase();
+        if(typeof val === 'string'){
+            const mm = val.match(/[a-f0-9]{64}/i);
+            if(mm) return mm[0].toLowerCase();
+        }
+    }
+    return '';
+}
+function extractPathFromAlert(alert){
+    if(!alert) return '';
+    const ev = alert.event || {};
+    const candidates = [ev.file_path, ev.path, ev.TargetFilename, ev.FileName, ev.fileName, ev.image, ev.target_path, ev.filePath, ev.FilePath, ev.filepath];
+    for(const v of candidates){
+        if(typeof v === 'string' && v.trim()) return v.trim();
+    }
+    return '';
+}
+function getDeleteFileAlert(){
+    if(currentAlertCaseId){
+        const a = alerts.find(x=>x.caseId===currentAlertCaseId);
+        if(a) return a;
+    }
+    if(selectedAlerts.size===1){
+        const cid=[...selectedAlerts][0];
+        const a=alerts.find(x=>x.caseId===cid);
+        if(a) return a;
+    }
+    if(selectedAlerts.size>1){
+        for(const cid of selectedAlerts){
+            const a=alerts.find(x=>x.caseId===cid);
+            if(a && /^[a-f0-9]{64}$/i.test(extractSha256FromAlert(a))) return a;
+        }
+        const cid2=[...selectedAlerts][0];
+        return alerts.find(x=>x.caseId===cid2) || null;
+    }
+    return null;
+}
+function updateDeleteFileFormState(){
+    const pathEl=document.getElementById('deleteFilePath');
+    const shaEl=document.getElementById('deleteFileSha256');
+    const reasonEl=document.getElementById('deleteFileReason');
+    const confirmEl=document.getElementById('deleteFileConfirm');
+    const btn=document.getElementById('deleteFileBtn');
+    const hint=document.getElementById('deleteFileHint');
+    if(!pathEl || !shaEl || !btn) return;
+    const alert=getDeleteFileAlert();
+    let sha=''; let fpath='';
+    if(alert){ sha=extractSha256FromAlert(alert); fpath=extractPathFromAlert(alert); }
+    pathEl.value=fpath||'';
+    shaEl.value=sha||'';
+    const hasValidSha=/^[a-f0-9]{64}$/i.test(sha);
+    const fingerprint=hasValidSha ? `delete_file:${fpath}:${sha.toLowerCase()}` : '';
+    const locked=fingerprint && uncertainResponseTargets.has(fingerprint);
+    const hasReason=reasonEl ? reasonEl.value.trim().length>0 : false;
+    const hasConfirm=confirmEl ? confirmEl.checked : false;
+    const canEnable=hasValidSha && hasReason && hasConfirm && !locked && !deleteFileInFlight;
+    if(reasonEl) reasonEl.disabled=!hasValidSha || Boolean(locked);
+    if(confirmEl) confirmEl.disabled=!hasValidSha || Boolean(locked);
+    if(btn) btn.disabled=!canEnable;
+    if(hint){
+        if(locked){
+            hint.textContent='outcome_unknown — 已锁定，需人工 reconcile 后方可再次提交；不自动重试，不自动轮询。';
+            hint.style.color='#f85149';
+        } else if(!alert){
+            hint.textContent='请选择一条含 64hex sha256 的告警（点击告警查看详情或勾选列表）后再操作；path 仅回显不允许手输。';
+            hint.style.color='#8b949e';
+        } else if(!hasValidSha){
+            hint.textContent='所选告警事件不含有效 64hex sha256，Delete file 不可用（需哈希）。';
+            hint.style.color='#d29922';
+        } else {
+            hint.textContent='已就绪：path/sha256 来自告警事件只读回显，填写 reason 并二次确认后提交。';
+            hint.style.color='#3fb950';
+        }
+    }
+}
+async function submitDeleteFile(){
+    const pathEl=document.getElementById('deleteFilePath');
+    const shaEl=document.getElementById('deleteFileSha256');
+    const reasonEl=document.getElementById('deleteFileReason');
+    const confirmEl=document.getElementById('deleteFileConfirm');
+    const resultEl=document.getElementById('deleteFileResult');
+    if(!pathEl || !shaEl || !reasonEl || !confirmEl || !resultEl) return;
+    const sha=(shaEl.value||'').trim().toLowerCase();
+    const fpath=(pathEl.value||'').trim();
+    const reason=(reasonEl.value||'').trim();
+    if(!/^[a-f0-9]{64}$/i.test(sha)){ resultEl.textContent='sha256 must be 64 hex (from alert event, readonly)'; resultEl.style.color='#f85149'; return; }
+    if(!fpath){ resultEl.textContent='path is required (from alert, readonly)'; resultEl.style.color='#f85149'; return; }
+    if(!reason){ resultEl.textContent='reason is required'; resultEl.style.color='#f85149'; return; }
+    if(!confirmEl.checked){ resultEl.textContent='请勾选二次确认'; resultEl.style.color='#f85149'; return; }
+    if(!adminApiKey){ resultEl.textContent='Admin key required (memory only)'; resultEl.style.color='#f85149'; alert('Admin key required — enter it in Response -> Admin API key'); return; }
+    const fingerprint=`delete_file:${fpath}:${sha}`;
+    if(uncertainResponseTargets.has(fingerprint)){ updateDeleteFileFormState(); resultEl.textContent='Locked after outcome_unknown — 人工 reconcile 后再试，不自动重试'; resultEl.style.color='#f85149'; return; }
+    if(deleteFileInFlight) return;
+    deleteFileInFlight=true; updateDeleteFileFormState();
+    resultEl.textContent='Submitting...'; resultEl.style.color='#8b949e';
+    try{
+        // Backend dependency: POST /api/response/delete_file (admin, X-API-Key adminApiKey, body {reason, target:{path, sha256}}) — exactKeys ['reason','target'] / ['path','sha256'] @ server.js:1480/1488
+        const response=await request('/api/response/delete_file',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reason, target:{path:fpath, sha256:sha}})},adminApiKey);
+        let data; try{ data=await response.json(); }catch(e){ lockUncertainResponse(fingerprint,{status:'invalid_response_body',error:e.message}); resultEl.textContent=`invalid response body — outcome_unknown — 人工 reconcile，不自动重试\nHTTP ${response.status}`; resultEl.style.color='#f85149'; updateDeleteFileFormState(); return; }
+        const status=data.status || data.result || '';
+        const successSet=new Set(['deleted','already_gone','scheduled_for_delete']);
+        const errorSet=new Set(['hash_mismatch','policy_rejected','delete_failed']);
+        if(status==='outcome_unknown'){
+            lockUncertainResponse(fingerprint,data);
+            resultEl.textContent=JSON.stringify({http_status:response.status,...data},null,2)+'\n\n[WARN] outcome_unknown — 已锁定，需人工 reconcile；不自动重试，不自动轮询';
+            resultEl.style.color='#f85149';
+        } else if(errorSet.has(status)){
+            resultEl.textContent=JSON.stringify({http_status:response.status,...data},null,2);
+            resultEl.style.color='#f85149';
+        } else if(successSet.has(status)){
+            resultEl.textContent=JSON.stringify({http_status:response.status,...data},null,2);
+            resultEl.style.color='#3fb950';
+        } else {
+            resultEl.textContent=JSON.stringify({http_status:response.status,...data},null,2);
+            resultEl.style.color=response.ok ? '#3fb950' : '#f85149';
+        }
+        try{ await loadResponseAudit(); }catch(_){}
+    }catch(e){
+        const fp2=`delete_file:${fpath}:${sha}`;
+        lockUncertainResponse(fp2,{status:'transport_failure_after_submit',error:e.message});
+        resultEl.textContent=`Request failed after submit — outcome_unknown — 人工 reconcile，不自动重试\n${e.message}`; resultEl.style.color='#f85149';
+    }finally{ deleteFileInFlight=false; updateDeleteFileFormState(); }
+}
+// --- Evidence (read-only forensic bundles) ---
+// Backend dependencies（三路由契约，均 auth read, X-API-Key: readKey memory only via request()+sessionStorage）
+// 1) GET /api/evidence?requestId=&rule=&severity=&since=&until=&limit=&offset= -> {evidence:[{requestId|id, rule, severity, timestamp/time, evidence_path}], total}  只读列表
+// 2) GET /api/evidence/:id/manifest -> manifest.json 内容 {schema, files:[], ...}  只读展示 schema/文件清单
+// 3) GET /api/evidence/:id/file?file=<allowlist> -> file blob  allowlist: snapshot.txt/process_tree.json/alert.json/response.json/manifest.json  fetch+X-API-Key blob 下载（复用 exportCoverageCsv 模式）
+let evidenceItems = [];
+let evidenceTotal = 0;
+let evidenceOffset = 0;
+const EVIDENCE_PAGE_SIZE = 100;
+let evidenceSelectedId = '';
+const EVIDENCE_ALLOWLIST = ['snapshot.txt','process_tree.json','alert.json','response.json','manifest.json'];
+function evidenceQueryString(){
+    const params = new URLSearchParams({ limit: String(EVIDENCE_PAGE_SIZE), offset: String(evidenceOffset) });
+    const rid = document.getElementById('evidenceRequestId')?.value.trim();
+    const rule = document.getElementById('evidenceRule')?.value.trim();
+    const sev = document.getElementById('evidenceSeverity')?.value;
+    const sinceVal = document.getElementById('evidenceSince')?.value;
+    const untilVal = document.getElementById('evidenceUntil')?.value;
+    if(rid) params.set('requestId', rid);
+    if(rule) params.set('rule', rule);
+    if(sev) params.set('severity', sev);
+    if(sinceVal){ try{ params.set('since', new Date(sinceVal).toISOString()); }catch(_){} }
+    if(untilVal){ try{ params.set('until', new Date(untilVal).toISOString()); }catch(_){} }
+    return `?${params.toString()}`;
+}
+function renderEvidenceList(){
+    const body = document.getElementById('evidenceList');
+    const summary = document.getElementById('evidenceSummary');
+    if(!body) return;
+    if(!evidenceItems.length){
+        body.innerHTML = '<tr><td colspan="6" class="muted">No evidence</td></tr>';
+        if(summary) summary.textContent = evidenceTotal ? `${evidenceTotal} total` : 'No evidence';
+        renderEvidencePageInfo();
+        return;
+    }
+    body.innerHTML = evidenceItems.map(item=>{
+        const rid = item.requestId || item.id || item.evidenceId || '';
+        const rule = item.rule || item.ruleId || '';
+        const sev = item.severity || '';
+        const ts = item.timestamp || item.time || item.createdAt || item.evidenceTime || '';
+        const t = ts ? new Date(ts).toLocaleString() : '';
+        const epath = item.evidence_path || item.evidencePath || item.auto_response_evidence_path || item.path || '';
+        const displayId = rid || epath;
+        return `<tr>
+            <td class="muted">${escapeHtml(t)}</td>
+            <td class="rule">${escapeHtml(rid)}</td>
+            <td>${escapeHtml(rule)}</td>
+            <td class="sev-${escapeHtml(sev)}">${escapeHtml(sev)}</td>
+            <td class="muted" title="${escapeHtml(epath)}">${escapeHtml(epath)}</td>
+            <td><button class="btn btn-secondary" style="padding:4px 8px;font-size:12px" onclick="loadEvidenceManifest('${escapeHtml(displayId).replace(/'/g, '&#39;')}')">View manifest</button></td>
+        </tr>`;
+    }).join('');
+    if(summary) summary.textContent = `${evidenceTotal || evidenceItems.length} evidence bundle(s)`;
+    renderEvidencePageInfo();
+}
+function renderEvidencePageInfo(){
+    const info = document.getElementById('evidencePageInfo');
+    if(!info) return;
+    const pages = Math.max(1, Math.ceil((evidenceTotal || evidenceItems.length || 0) / EVIDENCE_PAGE_SIZE));
+    const current = Math.min(evidenceOffset / EVIDENCE_PAGE_SIZE + 1, pages);
+    info.textContent = `Page ${current} / ${pages} (${evidenceTotal || evidenceItems.length} bundles)`;
+    const prev = document.getElementById('evidencePrev');
+    const next = document.getElementById('evidenceNext');
+    if(prev) prev.disabled = evidenceOffset <= 0;
+    if(next) next.disabled = evidenceOffset + EVIDENCE_PAGE_SIZE >= (evidenceTotal || evidenceItems.length);
+}
+function evidencePage(delta){
+    const next = evidenceOffset + delta * EVIDENCE_PAGE_SIZE;
+    if(next < 0 || (evidenceTotal > 0 && next >= evidenceTotal)) return;
+    evidenceOffset = Math.max(0, next);
+    loadEvidence();
+}
+async function loadEvidence(){
+    const body = document.getElementById('evidenceList');
+    const summary = document.getElementById('evidenceSummary');
+    if(body) body.innerHTML = '<tr><td colspan="6" class="muted">Loading...</td></tr>';
+    if(summary) summary.textContent = 'Loading...';
+    try{
+        // Backend dependency: GET /api/evidence (auth read) — 只读展示，不自动重试
+        const res = await request(`/api/evidence${evidenceQueryString()}`);
+        if(!res.ok){
+            let msg=''; try{ const j=await res.json(); msg=j.error||j.message||''; }catch(_){ try{ msg=await res.text(); }catch(_){} }
+            throw new Error(msg || `HTTP ${res.status}`);
+        }
+        const data = await res.json().catch(()=>({}));
+        const list = Array.isArray(data) ? data : (Array.isArray(data.evidence) ? data.evidence : (Array.isArray(data.items) ? data.items : (Array.isArray(data.data) ? data.data : [])));
+        evidenceItems = list.filter(Boolean);
+        evidenceTotal = typeof data.total === 'number' ? data.total : (typeof data.count === 'number' ? data.count : evidenceItems.length);
+        renderEvidenceList();
+    }catch(e){
+        if(body) body.innerHTML = `<tr><td colspan="6" class="muted">Evidence unavailable: ${escapeHtml(e.message)}</td></tr>`;
+        if(summary) summary.textContent = `Evidence unavailable: ${e.message}`;
+        renderEvidencePageInfo();
+    }
+}
+function renderEvidenceFiles(id){
+    const container = document.getElementById('evidenceFiles');
+    if(!container) return;
+    const safeId = encodeURIComponent(id);
+    container.innerHTML = EVIDENCE_ALLOWLIST.map(fname=>{
+        return `<button class="btn btn-secondary" style="padding:5px 10px;font-size:12px" onclick="downloadEvidenceFile('${escapeHtml(id).replace(/'/g, '&#39;')}','${fname}')">${escapeHtml(fname)}</button>`;
+    }).join('');
+}
+async function loadEvidenceManifest(id){
+    if(!id) return;
+    evidenceSelectedId = id;
+    const panel = document.getElementById('evidenceDetail');
+    const hint = document.getElementById('evidenceDetailHint');
+    const manifestEl = document.getElementById('evidenceManifest');
+    const rawEl = document.getElementById('evidenceManifestRaw');
+    if(panel) panel.style.display = 'block';
+    if(hint) hint.textContent = `id ${id}`;
+    if(manifestEl) manifestEl.textContent = 'Loading manifest...';
+    if(rawEl) rawEl.textContent = 'Loading...';
+    renderEvidenceFiles(id);
+    try{
+        // Backend dependency: GET /api/evidence/:id/manifest (auth read) — 只读展示 schema/文件清单，不自动重试
+        const res = await request(`/api/evidence/${encodeURIComponent(id)}/manifest`);
+        if(!res.ok){
+            let msg=''; try{ const j=await res.json(); msg=j.error||j.message||''; }catch(_){ try{ msg=await res.text(); }catch(_){} }
+            throw new Error(msg || `HTTP ${res.status}`);
+        }
+        const data = await res.json().catch(()=>({}));
+        if(rawEl) rawEl.textContent = JSON.stringify(data, null, 2);
+        // render summary: schema + file list (deleteFileSection 只读回显模式 + playbookProgress 只读卡风格)
+        const schema = data.schema || data.schemaVersion || data.version || '';
+        const files = Array.isArray(data.files) ? data.files : (Array.isArray(data.fileList) ? data.fileList : (Array.isArray(data.manifest?.files) ? data.manifest.files : []));
+        const fileList = files.length ? files : EVIDENCE_ALLOWLIST;
+        const schemaHtml = schema ? `<div class="field"><label>Schema</label><div class="rule">${escapeHtml(String(schema))}</div></div>` : '';
+        const filesHtml = `<div class="field"><label>Files (${fileList.length})</label><div class="muted">${fileList.map(f=>`<code style="margin:2px 4px;display:inline-block">${escapeHtml(typeof f==='string'?f:(f.name||f.path||JSON.stringify(f)))}</code>`).join('')}</div></div>`;
+        const extra = data.requestId || data.rule || data.severity ? `<div class="field"><label>Bundle</label><div class="muted">${escapeHtml(JSON.stringify({requestId:data.requestId, rule:data.rule, severity:data.severity}))}</div></div>` : '';
+        if(manifestEl){
+            manifestEl.classList.remove('muted');
+            manifestEl.innerHTML = schemaHtml + filesHtml + extra + `<div class="muted" style="font-size:12px;margin-top:8px">Read-only via <code>GET /api/evidence/${escapeHtml(id)}/manifest</code>；下方五个文件按钮走 <code>GET /api/evidence/:id/file?file=</code> blob 下载。</div>`;
+        }
+        // ensure Evidence tab visible
+        const tab = document.querySelector('[data-view="evidenceView"]');
+        if(tab && !document.getElementById('evidenceView')?.classList.contains('active')){
+            activateTab(tab);
+            document.getElementById('evidenceDetail')?.scrollIntoView({behavior:'smooth', block:'start'});
+        }
+    }catch(e){
+        if(manifestEl) manifestEl.textContent = `Manifest unavailable: ${e.message}`;
+        if(rawEl) rawEl.textContent = `Manifest unavailable: ${e.message}`;
+    }
+}
+async function downloadEvidenceFile(id, file){
+    if(!EVIDENCE_ALLOWLIST.includes(file)){
+        alert(`Invalid file: ${file}`);
+        return;
+    }
+    // Backend dependency: GET /api/evidence/:id/file?file=<allowlist> (auth read) — fetch+X-API-Key blob 下载，复用 exportCoverageCsv 模式
+    const url = `/api/evidence/${encodeURIComponent(id)}/file?file=${encodeURIComponent(file)}`;
+    try{
+        const res = await request(url, {}, readKey);
+        if(!res.ok){
+            let msg=''; try{ const j=await res.json(); msg=j.error||j.message||''; }catch(_){ try{ msg=await res.text(); }catch(_){} }
+            throw new Error(msg || `HTTP ${res.status}`);
+        }
+        const blob = await res.blob();
+        const href = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = href;
+        a.download = file;
+        a.click();
+        setTimeout(()=> URL.revokeObjectURL(href), 5000);
+    }catch(e){
+        alert(`Download failed (${file}): ${e.message} — Evidence unavailable, no auto retry`);
+    }
+}
+function openEvidenceFromAlert(evidencePath){
+    if(!evidencePath) return;
+    // evidencePath may be like "evidence/<requestId>/..." or absolute path; extract requestId/id as last meaningful segment
+    let id = String(evidencePath).trim();
+    // try to extract requestId from path: take basename without extension if looks like uuid/requestId
+    // heuristic: split by / and take last non-empty that is not a filename in allowlist
+    const parts = id.split('/').filter(Boolean);
+    if(parts.length){
+        const last = parts[parts.length-1];
+        if(EVIDENCE_ALLOWLIST.includes(last) && parts.length>=2){
+            id = parts[parts.length-2];
+        } else {
+            id = last;
+        }
+        // strip query/hash
+        id = id.split('?')[0].split('#')[0];
+    }
+    const tab = document.querySelector('[data-view="evidenceView"]');
+    if(tab) activateTab(tab);
+    // preload list then open manifest (manifest load is independent of list)
+    loadEvidenceManifest(id);
+    // also refresh list in background (read-only, unavailable文案不自动重试)
+    loadEvidence().catch(()=>{});
+}
+
+let socket;
+document.getElementById('readKey').value = readKey;
+
+const escapeHtml = value => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+function request(url, options = {}, key = readKey) {
+    options.headers = { ...(options.headers || {}) };
+    if (key) options.headers['X-API-Key'] = key;
+    return fetch(url, options);
+}
+function applyReadKey() {
+    readKey = document.getElementById('readKey').value;
+    if (readKey) sessionStorage.setItem('edr_read_api_key', readKey); else sessionStorage.removeItem('edr_read_api_key');
+    localStorage.removeItem('edr_api_key');
+    connectSocket();
+    refreshAll();
+}
+function setStatus(text, online) {
+    const status = document.getElementById('status');
+    status.textContent = text;
+    status.className = `status ${online ? 'on' : 'off'}`;
+}
+function setAdminKey(input) {
+    adminApiKey = input.value;
+    for (const id of ['adminKey', 'triageAdminKey', 'bulkAdminKey']) {
+        const element = document.getElementById(id);
+        if (element && element !== input) element.value = adminApiKey;
+    }
+    // refresh playbook list when admin key becomes available (admin auth required for GET /api/playbooks)
+    if (adminApiKey && !playbooks.length) loadPlaybooks();
+    try{ updateDeleteFileFormState(); }catch(_){}
+}
+function closeModal() {
+    currentAlertCaseId = '';
+    document.getElementById('modal').classList.remove('show');
+    try{ updateDeleteFileFormState(); }catch(_){}
+}
+function activateTab(tab) {
+    document.querySelectorAll('.tab').forEach(item => item.classList.toggle('active', item === tab));
+    document.querySelectorAll('.view').forEach(view => view.classList.toggle('active', view.id === tab.dataset.view));
+    if (tab.dataset.view === 'processView') loadProcesses();
+    if (tab.dataset.view === 'endpointsView') loadEndpoints();
+    if (tab.dataset.view === 'eventsView') loadEvents();
+    if (tab.dataset.view === 'responseView') { loadResponseAudit(); refreshIsolationStatus(); }
+    if (tab.dataset.view === 'overviewView') refreshOverview();
+    if (tab.dataset.view === 'systemView') loadSystemStatus();
+    if (tab.dataset.view === 'rulesView') loadRules();
+    if (tab.dataset.view === 'coverageView') loadCoverage();
+    if (tab.dataset.view === 'evidenceView') loadEvidence();
+}
+document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => activateTab(tab)));
+
+function alertProcess(alert) {
+    const event = alert.event || {};
+    const base = event.image || event.command_line || event.output || '';
+    const scores = [];
+    if (event.c2_beacon_score !== undefined) scores.push(`c2_beacon ${event.c2_beacon_score}`);
+    if (event.bulk_file_score !== undefined) scores.push(`bulk_file ${event.bulk_file_score}`);
+    if (event.password_spray_score !== undefined) scores.push(`password_spray ${event.password_spray_score}`);
+    if (event.kerberoast_score !== undefined) scores.push(`kerberoast ${event.kerberoast_score}`);
+    if (event.port_scan_score !== undefined) scores.push(`port_scan ${event.port_scan_score}`);
+    const markers = scores.map(score => `[${score}]`).join(' ');
+    return base ? `${base} ${markers}` : markers;
+}
+function mitreTechniques(alert) {
+    return alert.mitre_attack || alert.event?.mitre_attack || [];
+}
+function mitreTactics(alert) {
+    return alert.mitre_tactic || alert.event?.mitre_tactic || [];
+}
+function mitreBadges(alert) {
+    const techniques = mitreTechniques(alert);
+    if (!techniques.length) return '';
+    return techniques.map(t => `<span class="mitre" title="${escapeHtml(t)}">${escapeHtml(t)}</span>`).join(' ');
+}
+function filterAlerts() {
+    const search = document.getElementById('search').value.toLowerCase();
+    if (search) {
+        renderAlerts(alerts.filter(alert => JSON.stringify(alert).toLowerCase().includes(search)));
+        return;
+    }
+    renderAlerts(alerts);
+}
+
+function applyAlertFilters() {
+    /* Called when a filter control changes: reset to page 1 and refetch. */
+    alertsOffset = 0;
+    refreshAll();
+}
+let selectedAlerts = new Set();
+function renderAlerts(items) {
+    const body = document.getElementById('alerts');
+    if (!items.length) { body.innerHTML = '<tr><td colspan="11" class="muted">No alerts</td></tr>'; return; }
+    body.innerHTML = items.map(alert => `<tr data-alert-index="${alerts.indexOf(alert)}">
+        <td onclick="event.stopPropagation()"><input type="checkbox" class="alert-check" value="${escapeHtml(alert.caseId)}" ${selectedAlerts.has(alert.caseId) ? 'checked' : ''} onchange="toggleBulkSelection(this)"></td>
+        <td class="muted">${escapeHtml(new Date(alert.timestamp).toLocaleString())}</td>
+        <td class="rule">${escapeHtml(alert.rule)}</td><td class="sev-${escapeHtml(alert.severity)}">${escapeHtml(alert.severity)}</td>
+        <td><span class="badge status-${escapeHtml(alert.triage?.status || 'new')}">${escapeHtml((alert.triage?.status || 'new').replace('_', ' '))}</span></td>
+        <td>${escapeHtml(alert.triage?.priority || 'normal')}</td>
+        <td class="muted">${escapeHtml(alert.triage?.assignee || '')}</td>
+        <td>${escapeHtml(alert.event?.type)}</td><td title="${escapeHtml(alertProcess(alert))}">${escapeHtml(alertProcess(alert))}</td>
+        <td class="mitre-cell optional-col">${mitreBadges(alert)}</td>
+        <td class="optional-col" title="${escapeHtml(alert.sourceId)}">${escapeHtml(alert.sourceId)}</td></tr>`).join('');
+    body.querySelectorAll('[data-alert-index]').forEach(row => row.addEventListener('click', () => showAlert(Number(row.dataset.alertIndex))));
+}
+function toggleBulkSelection(checkbox) {
+    const caseId = checkbox.value;
+    if (checkbox.checked) selectedAlerts.add(caseId); else selectedAlerts.delete(caseId);
+    updateBulkBar();
+    try{ updateDeleteFileFormState(); }catch(_){}
+}
+function toggleSelectAll(checkbox) {
+    selectedAlerts.clear();
+    document.querySelectorAll('.alert-check').forEach(item => {
+        item.checked = checkbox.checked;
+        if (checkbox.checked) selectedAlerts.add(item.value);
+    });
+    updateBulkBar();
+    try{ updateDeleteFileFormState(); }catch(_){}
+}
+function clearBulkSelection() {
+    selectedAlerts.clear();
+    document.querySelectorAll('.alert-check').forEach(item => { item.checked = false; });
+    document.getElementById('selectAll').checked = false;
+    updateBulkBar();
+    try{ updateDeleteFileFormState(); }catch(_){}
+}
+function updateBulkBar() {
+    const bar = document.getElementById('bulkBar');
+    bar.style.display = selectedAlerts.size ? 'flex' : 'none';
+    const playbookBar = document.getElementById('playbookBar');
+    if (playbookBar) playbookBar.style.display = selectedAlerts.size ? 'flex' : 'none';
+    document.getElementById('bulkCount').textContent = `${selectedAlerts.size} selected`;
+    const adminKeyInput = document.getElementById('bulkAdminKey');
+    if (adminKeyInput && !adminKeyInput.value) adminKeyInput.value = adminApiKey;
+    try{ updateDeleteFileFormState(); }catch(_){}
+}
+async function bulkTriage() {
+    const status = document.getElementById('bulkStatus').value;
+    const assignee = document.getElementById('bulkAssignee').value.trim();
+    const priority = document.getElementById('bulkPriority').value;
+    const key = document.getElementById('bulkAdminKey').value;
+    const result = document.getElementById('bulkResult');
+    const button = document.getElementById('bulkApplyBtn');
+    if (!selectedAlerts.size) return;
+    if (result) result.textContent = 'Updating...';
+    if (button) button.disabled = true;
+    try {
+        const body = { caseIds: [...selectedAlerts], status };
+        if (assignee) body.assignee = assignee;
+        if (priority) body.priority = priority;
+        const response = await request('/api/alerts/triage/batch', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+        }, key || adminApiKey);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
+        if (result) result.textContent = `Updated ${data.updated} alert(s)`;
+        clearBulkSelection();
+        await refreshAll();
+    } catch (error) { if (result) result.textContent = error.message; }
+    finally { if (button) button.disabled = false; }
+}
+// --- SOAR playbook frontend (manual trigger only) ---
+// Backend dependency: GET /api/playbooks (admin, list), POST /api/playbooks/:id/run (admin, body {caseIds}) - parallel backend agent owns console/server.js
+function playbookStepsSummary(playbook) {
+    const steps = playbook.steps || playbook.actions || [];
+    if (!Array.isArray(steps) || !steps.length) return playbook.description ? String(playbook.description).slice(0,80) : playbook.id;
+    return steps.map(step => {
+        if (typeof step === 'string') return step;
+        return step.action || step.type || step.name || step.id || JSON.stringify(step);
+    }).join('→');
+}
+function renderPlaybookSelect() {
+    const select = document.getElementById('playbookSelect');
+    if (!select) return;
+    if (!playbooks.length) {
+        select.innerHTML = '<option value="">No playbooks</option>';
+        return;
+    }
+    select.innerHTML = playbooks.map(pb => {
+        const summary = playbookStepsSummary(pb);
+        const label = `${pb.id}：${summary}`;
+        return `<option value="${escapeHtml(pb.id)}">${escapeHtml(label)}</option>`;
+    }).join('');
+}
+async function loadPlaybooks() {
+    const select = document.getElementById('playbookSelect');
+    const status = document.getElementById('playbookStatus');
+    if (select) select.innerHTML = '<option value="">Loading playbooks...</option>';
+    if (status) status.textContent = '';
+    try {
+        // admin auth required; uses memory adminApiKey (never persisted)
+        const key = adminApiKey || readKey;
+        const response = await request('/api/playbooks', {}, key);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+        // supports {playbooks:[...]} or [...] or {data:[...]}
+        const list = Array.isArray(data) ? data : (Array.isArray(data.playbooks) ? data.playbooks : (Array.isArray(data.data) ? data.data : []));
+        playbooks = list.filter(item => item && typeof item.id === 'string');
+        renderPlaybookSelect();
+        if (status) status.textContent = playbooks.length ? `${playbooks.length} playbook(s)` : 'No playbooks';
+    } catch (error) {
+        playbooks = [];
+        if (select) select.innerHTML = '<option value="">Playbooks unavailable</option>';
+        if (status) status.textContent = error.message + ' (backend: GET /api/playbooks admin)';
+    }
+}
+function renderPlaybookResult(result) {
+    const hint = document.getElementById('playbookProgressHint');
+    const body = document.getElementById('playbookProgressBody');
+    const stepsEl = document.getElementById('playbookSteps');
+    const panel = document.getElementById('playbookProgress');
+    if (!panel || !body || !stepsEl) return;
+    panel.style.display = 'block';
+    const steps = result.steps || result.results || result.execution || result.details || [];
+    const isArraySteps = Array.isArray(steps) && steps.length;
+    if (hint) hint.textContent = [result.playbookId ? `playbook ${result.playbookId}` : (result.id ? `playbook ${result.id}` : ''),
+        result.runId ? `run ${result.runId}` : ''].filter(Boolean).join(' · ');
+    body.textContent = JSON.stringify(result, null, 2);
+    if (isArraySteps) {
+        const rows = steps.map((step, index) => {
+            const action = step.action || step.type || step.name || `step ${index+1}`;
+            const status = step.status || step.outcome || step.result || 'unknown';
+            const uncertain = /unknown|uncertain|outcome_unknown/i.test(status);
+            const failed = /fail|error|rejected|invalid|not_ready|not_found/i.test(status);
+            const detail = step.detail || step.message || step.error || step.reason || '';
+            const statusClass = uncertain ? 'sev-high' : (failed ? 'sev-high' : (status === 'success' || status === 'ok' ? 'state-recent' : 'muted'));
+            return `<tr${uncertain || failed ? ' style="background:#3a2415"' : ''}><td>${escapeHtml(String(index+1))}</td><td>${escapeHtml(String(action))}</td><td class="${statusClass}">${escapeHtml(String(status))}${uncertain ? ' — MANUAL RECONCILIATION REQUIRED; DO NOT RETRY AUTOMATICALLY' : (failed ? ' — STOPPED' : '')}</td><td class="muted" title="${escapeHtml(String(detail))}">${escapeHtml(String(detail).slice(0,200))}</td></tr>`;
+        }).join('');
+        stepsEl.innerHTML = `<div class="table-wrap"><table><thead><tr><th>#</th><th>Step</th><th>Status</th><th>Detail</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    } else {
+        // generic fallback: show top-level status if present
+        const status = result.status || result.overall || '';
+        const uncertain = /unknown|uncertain/i.test(String(status)) || result.outcome === 'unknown';
+        const failed = /fail/i.test(String(status));
+        if (uncertain || failed || status) {
+            stepsEl.innerHTML = `<div class="notice" style="${uncertain || failed ? 'border-color:#f85149;color:#ffb3ad' : ''}">${escapeHtml(String(status || 'completed'))}${uncertain || failed ? ' — MANUAL RECONCILIATION REQUIRED; DO NOT RETRY AUTOMATICALLY' : ''}</div>`;
+        } else {
+            stepsEl.innerHTML = '';
+        }
+    }
+}
+async function runPlaybook() {
+    const select = document.getElementById('playbookSelect');
+    const status = document.getElementById('playbookStatus');
+    const button = document.getElementById('playbookRunBtn');
+    const playbookId = select ? select.value : '';
+    if (!playbookId) { if (status) status.textContent = 'Select a playbook'; return; }
+    if (!selectedAlerts.size) { if (status) status.textContent = 'Select at least one alert'; return; }
+    if (!adminApiKey) { if (status) status.textContent = 'Admin key required (memory only)'; alert('Admin key required — enter it in bulk bar or Response -> Admin API key'); return; }
+    if (playbookRunInFlight) return;
+    playbookRunInFlight = true;
+    if (button) button.disabled = true;
+    if (status) status.textContent = 'Running...';
+    const body = document.getElementById('playbookProgressBody');
+    const panel = document.getElementById('playbookProgress');
+    if (panel) panel.style.display = 'block';
+    if (body) body.textContent = `Running playbook ${playbookId} on ${selectedAlerts.size} case(s)...`;
+    const stepsEl = document.getElementById('playbookSteps');
+    if (stepsEl) stepsEl.innerHTML = '<span class="muted">Executing...</span>';
+    try {
+        // POST /api/playbooks/:id/run body {caseIds} header X-API-Key adminApiKey
+        const response = await request(`/api/playbooks/${encodeURIComponent(playbookId)}/run`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ caseIds: [...selectedAlerts] })
+        }, adminApiKey);
+        let data;
+        try { data = await response.json(); } catch (_) { data = { status: response.status, error: 'invalid response body' }; }
+        if (!response.ok && !data.runId) throw new Error(data.error || data.message || `Request failed (${response.status})`);
+        renderPlaybookResult(data);
+        const hasUncertain = (() => {
+            const steps = data.steps || data.results || [];
+            if (Array.isArray(steps)) return data.hasUncertain === true ||
+                steps.some(s => /unknown|uncertain|outcome_unknown/i.test(String(s.status || s.outcome || '')));
+            return data.hasUncertain === true || /unknown|uncertain/i.test(String(data.status || '')) || data.outcome === 'unknown';
+        })();
+        const hasFailure = (() => {
+            const steps = data.steps || data.results || [];
+            if (Array.isArray(steps)) return data.ok === false || steps.some(s => /fail|error|rejected|invalid|not_ready|not_found/i.test(String(s.status || '')));
+            return data.ok === false || /fail/i.test(String(data.status || ''));
+        })();
+        if (status) status.textContent = hasUncertain ? 'Uncertain — reconcile manually' : (hasFailure ? 'Stopped — review result' : 'Completed');
+        if (hasUncertain || hasFailure) {
+            if (body) body.textContent += '\n\n[WARN] ' + (hasUncertain ? 'outcome_unknown/uncertain — MANUAL RECONCILIATION REQUIRED; DO NOT RETRY AUTOMATICALLY' : 'playbook stopped after a failed step') + '\n' + JSON.stringify(data, null, 2);
+        }
+        // refresh Response audit and alert list
+        try { await loadResponseAudit(); } catch (_) {}
+        try { await refreshAll(); } catch (_) {}
+    } catch (error) {
+        if (status) status.textContent = error.message;
+        if (body) body.textContent = `Run failed: ${error.message}\n\nMANUAL RECONCILIATION REQUIRED; DO NOT RETRY AUTOMATICALLY`;
+        if (stepsEl) stepsEl.innerHTML = `<div class="notice" style="border-color:#f85149;color:#ffb3ad">Failed — ${escapeHtml(error.message)} — reconcile manually; no automatic retry</div>`;
+    } finally {
+        playbookRunInFlight = false;
+        if (button) button.disabled = false;
+    }
+}
+async function loadAlertActivity(caseId) {
+    const target = document.getElementById('alertActivity');
+    if (!target || currentAlertCaseId !== caseId) return;
+    try {
+        const response = await request(`/api/alerts/${encodeURIComponent(caseId)}/activity`);
+        if (!response.ok) throw new Error('activity request failed');
+        const activity = await response.json();
+        if (!target || currentAlertCaseId !== caseId) return;
+        target.classList.remove('muted');
+        target.innerHTML = activity.length ? activity.map(item => `<div class="activity-row"><div class="activity-meta"><span class="badge status-${escapeHtml(item.status)}">${escapeHtml(item.status.replace('_', ' '))}</span><span>${escapeHtml(new Date(item.timestamp).toLocaleString())}</span></div><div class="activity-note">${escapeHtml(item.note || 'No note')}</div><div class="muted" style="font-size:11px;margin-top:4px">${escapeHtml(item.actor)}</div></div>`).join('') : '<span class="muted">No investigation activity</span>';
+    } catch (_) { if (target) target.textContent = 'Unable to load activity'; }
+}
+async function updateAlertTriage() {
+    const result = document.getElementById('triageResult');
+    const button = document.getElementById('triageButton');
+    if (!currentAlertCaseId || !result || !button) return;
+    result.textContent = 'Updating...';
+    button.disabled = true;
+    try {
+        const response = await request(`/api/alerts/${encodeURIComponent(currentAlertCaseId)}/triage`, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                status: document.getElementById('caseStatus').value,
+                note: document.getElementById('caseNote').value,
+                assignee: document.getElementById('caseAssignee').value,
+                priority: document.getElementById('casePriority').value,
+            }),
+        }, adminApiKey);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
+        const index = alerts.findIndex(alert => alert.caseId === currentAlertCaseId);
+        if (index >= 0) alerts[index] = data.alert;
+        document.getElementById('alertRaw').textContent = JSON.stringify(data.alert, null, 2);
+        result.textContent = 'Updated';
+        filterAlerts();
+        await Promise.all([loadAlertActivity(currentAlertCaseId), refreshStats()]);
+    } catch (error) { result.textContent = error.message; }
+    finally { button.disabled = false; }
+}
+function showJsonDetail(title, value) {
+    currentAlertCaseId = '';
+    document.getElementById('modalTitle').textContent = title;
+    document.getElementById('modalBody').innerHTML = '<div class="modal-section"><pre id="detailRaw"></pre></div>';
+    document.getElementById('detailRaw').textContent = JSON.stringify(value, null, 2);
+    document.getElementById('modal').classList.add('show');
+}
+function updateStats(stats) {
+    const cards = ['critical', 'high', 'medium', 'low', 'info'].map(severity => `<div class="stat sev-${severity}"><div class="num">${stats.bySeverity[severity] || 0}</div><div class="label">${severity}</div></div>`);
+    cards.push(`<div class="stat"><div class="num">${stats.total}</div><div class="label">alerts</div></div>`);
+    cards.push(`<div class="stat"><div class="num">${stats.open || 0}</div><div class="label">open</div></div>`);
+    cards.push(`<div class="stat"><div class="num">${stats.endpoints || 0}</div><div class="label">endpoints</div></div>`);
+    cards.push(`<div class="stat"><div class="num">${stats.events || 0}</div><div class="label">events</div></div>`);
+    cards.push(`<div class="stat"><div class="num">${stats.processes}</div><div class="label">processes</div></div>`);
+    document.getElementById('stats').innerHTML = cards.join('');
+}
+async function refreshStats() {
+    const response = await request('/api/stats');
+    if (!response.ok) throw new Error('stats request failed');
+    const stats = await response.json();
+    updateStats(stats);
+    setStatus(`connected (${stats.open} open)`, true);
+    return stats;
+}
+async function refreshAll() {
+    try {
+        const [alertResponse, statsResponse] = await Promise.all([request(alertQueryUrl()), request('/api/stats')]);
+        if (alertResponse.status === 401 || statsResponse.status === 401) { setStatus('read auth required', false); return; }
+        if (!alertResponse.ok || !statsResponse.ok) throw new Error('request failed');
+        const alertPayload = await alertResponse.json();
+        alerts = alertPayload.alerts;
+        alertsTotal = alertPayload.total || 0;
+        renderAlertsPageInfo();
+        const stats = await statsResponse.json();
+        const knownAssignees = new Set();
+        for (const alert of alerts) {
+            knownRules.add(alert.rule);
+            if (alert.triage?.assignee) knownAssignees.add(alert.triage.assignee);
+            for (const tactic of mitreTactics(alert)) knownTactics.add(tactic);
+        }
+        const rule = document.getElementById('rule');
+        const selected = rule.value;
+        rule.innerHTML = '<option value="">All rules</option>' + [...knownRules].sort().map(value => `<option ${value === selected ? 'selected' : ''}>${escapeHtml(value)}</option>`).join('');
+        const tactic = document.getElementById('mitreTactic');
+        const tacticSelected = tactic.value;
+        tactic.innerHTML = '<option value="">All tactics</option>' + [...knownTactics].sort().map(value => `<option ${value === tacticSelected ? 'selected' : ''}>${escapeHtml(value)}</option>`).join('');
+        const assignee = document.getElementById('assignee');
+        const assigneeSelected = assignee.value;
+        assignee.innerHTML = '<option value="">All assignees</option>' + [...knownAssignees].sort().map(value => `<option ${assigneeSelected === value ? 'selected' : ''}>${escapeHtml(value)}</option>`).join('');
+        filterAlerts(); updateStats(stats); setStatus(`connected (${stats.open} open)`, true);
+        refreshOverview();
+        try{ updateDeleteFileFormState(); }catch(_){}
+    } catch (_) { setStatus('disconnected', false); }
+}
+
+function alertQueryUrl() {
+    const severity = document.getElementById('severity').value;
+    const status = document.getElementById('triageStatus').value;
+    const priority = document.getElementById('priority').value;
+    const assignee = document.getElementById('assignee').value;
+    const rule = document.getElementById('rule').value;
+    const tactic = document.getElementById('mitreTactic').value;
+    const since = document.getElementById('since').value;
+    const until = document.getElementById('until').value;
+    const params = new URLSearchParams({ limit: String(ALERTS_PAGE_SIZE), offset: String(alertsOffset) });
+    if (severity) params.set('severity', severity);
+    if (status) params.set('status', status);
+    if (priority) params.set('priority', priority);
+    if (assignee) params.set('assignee', assignee);
+    if (rule) params.set('rule', rule);
+    if (tactic) params.set('tactic', tactic);
+    if (since) params.set('since', new Date(since).toISOString());
+    if (until) params.set('until', new Date(until).toISOString());
+    return `/api/alerts?${params.toString()}`;
+}
+
+function renderAlertsPageInfo() {
+    const info = document.getElementById('alertsPageInfo');
+    if (!info) return;
+    const pages = Math.max(1, Math.ceil(alertsTotal / ALERTS_PAGE_SIZE));
+    const current = Math.min(alertsOffset / ALERTS_PAGE_SIZE + 1, pages);
+    info.textContent = `Page ${current} / ${pages} (${alertsTotal} alerts)`;
+    const prev = document.getElementById('alertsPrev');
+    const next = document.getElementById('alertsNext');
+    if (prev) prev.disabled = alertsOffset <= 0;
+    if (next) next.disabled = alertsOffset + ALERTS_PAGE_SIZE >= alertsTotal;
+}
+
+function alertsPage(delta) {
+    const next = alertsOffset + delta * ALERTS_PAGE_SIZE;
+    if (next < 0 || (alertsTotal > 0 && next >= alertsTotal)) return;
+    alertsOffset = Math.max(0, next);
+    refreshAll();
+}
+
+let trendChartInstance = null;
+async function refreshOverview() {
+    const [timeseries, health, endpoints] = await Promise.all([
+        request('/api/stats/timeseries?bucket=hour&days=24').then(response => response.ok ? response.json() : null).catch(() => null),
+        request('/api/stats/health').then(response => response.ok ? response.json() : null).catch(() => null),
+        request('/api/endpoints?limit=1000').then(response => response.ok ? response.json() : null).catch(() => null),
+    ]);
+    renderTrend(timeseries);
+    renderEndpointHealth(health, endpoints);
+}
+function renderTrend(timeseries) {
+    const canvas = document.getElementById('trendChart');
+    const fallback = document.getElementById('trendChartFallback');
+    if (!canvas || !fallback) return;
+    const points = timeseries && Array.isArray(timeseries.points) ? timeseries.points : [];
+    if (window.Chart && points.length) {
+        canvas.style.display = 'block';
+        fallback.innerHTML = '';
+        if (trendChartInstance) trendChartInstance.destroy();
+        // Single count dataset: the bar height shows total alerts per bucket and
+        // the tooltip breaks the bucket down by severity (matches the fallback
+        // renderer, which also shows one bar per bucket).
+        trendChartInstance = new Chart(canvas, {
+            type: 'bar',
+            data: {
+                labels: points.map(point => new Date(point.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })),
+                datasets: [{ label: 'Alerts', data: points.map(point => point.count), backgroundColor: '#58a6ff', borderColor: '#58a6ff', borderWidth: 1 }],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            afterLabel: context => {
+                                const point = points[context.dataIndex];
+                                const parts = Object.entries(point.bySeverity || {}).filter(([, count]) => count > 0).map(([severity, count]) => `${severity}: ${count}`);
+                                return parts.length ? parts.join(', ') : '';
+                            },
+                        },
+                    },
+                },
+                scales: {
+                    x: { ticks: { color: '#8b949e', maxRotation: 0, autoSkip: true, maxTicksLimit: 12 }, grid: { color: '#21262d' } },
+                    y: { beginAtZero: true, ticks: { color: '#8b949e', precision: 0 }, grid: { color: '#21262d' } },
+                },
+            },
+        });
+    } else {
+        canvas.style.display = 'none';
+        if (trendChartInstance) { trendChartInstance.destroy(); trendChartInstance = null; }
+        fallback.innerHTML = points.length ? renderTrendBars(points) : '<span class="muted">No detection data</span>';
+    }
+}
+function renderTrendBars(points) {
+    const max = Math.max(1, ...points.map(point => point.count));
+    const columns = points.map(point => {
+        const pct = Math.max(2, Math.round((point.count / max) * 100));
+        const label = new Date(point.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const severity = Object.entries(point.bySeverity || {}).filter(([, count]) => count > 0).map(([name, count]) => `${name} ${count}`).join(', ');
+        const title = `${label} — ${point.count} alerts${severity ? ` (${severity})` : ''}`;
+        return `<div class="trend-col" title="${escapeHtml(title)}"><div class="trend-track"><div class="trend-bar" style="height:${pct}%"></div></div><div class="trend-bar-label">${escapeHtml(label)}</div></div>`;
+    }).join('');
+    return `<div class="trend-bars">${columns}</div>`;
+}
+function renderEndpointHealth(health, endpoints) {
+    const target = document.getElementById('overviewEndpointHealth');
+    const statsTarget = document.getElementById('overviewStats');
+    if (!target) return;
+    const list = endpoints && Array.isArray(endpoints.endpoints) ? endpoints.endpoints : [];
+    const byState = health ? health.byState : {};
+    const total = health ? health.total : list.length;
+    const openAlerts = health ? health.openAlerts : list.reduce((sum, endpoint) => sum + (endpoint.openAlerts || 0), 0);
+    const critical = health && Array.isArray(health.criticalEndpoints) ? health.criticalEndpoints : [];
+    if (statsTarget) {
+        statsTarget.innerHTML = [
+            ['endpoints', total], ['recent', byState.recent || 0], ['stale', byState.stale || 0],
+            ['inactive', byState.inactive || 0], ['unknown', byState.unknown || 0], ['open alerts', openAlerts],
+        ].map(([label, num]) => `<div class="stat"><div class="num">${num}</div><div class="label">${label}</div></div>`).join('');
+    }
+    const parts = [];
+    if (critical.length) {
+        parts.push('<h3 class="overview-sub">Critical endpoints</h3>');
+        parts.push('<div class="table-wrap"><table><thead><tr><th>Host</th><th>Risk</th><th>Open alerts</th><th>Source ID</th></tr></thead><tbody>' +
+            critical.map(endpoint => `<tr><td>${escapeHtml(endpoint.reportedHost || 'Unreported')}</td><td class="risk-${escapeHtml(endpoint.risk)}">${escapeHtml(endpoint.risk)}</td><td>${escapeHtml(endpoint.openAlerts)}</td><td class="rule" title="${escapeHtml(endpoint.sourceId)}">${escapeHtml(endpoint.sourceId)}</td></tr>`).join('') +
+            '</tbody></table></div>');
+    }
+    const groups = {};
+    for (const endpoint of list) {
+        const state = endpoint.telemetryState || 'unknown';
+        (groups[state] = groups[state] || []).push(endpoint);
+    }
+    for (const state of ['recent', 'stale', 'inactive', 'unknown']) {
+        const items = groups[state] || [];
+        if (!items.length) continue;
+        parts.push(`<h3 class="overview-sub">${state} (${items.length})</h3>`);
+        parts.push('<div class="table-wrap"><table><thead><tr><th>Host</th><th>Risk</th><th>Open / Alerts</th><th>Last seen</th></tr></thead><tbody>' +
+            items.map(endpoint => `<tr><td>${escapeHtml(endpoint.reportedHost || 'Unreported')}</td><td class="risk-${escapeHtml(endpoint.risk)}">${escapeHtml(endpoint.risk)}</td><td>${escapeHtml(endpoint.openAlerts)} / ${escapeHtml(endpoint.alerts)}</td><td class="muted">${endpoint.lastSeen ? escapeHtml(new Date(endpoint.lastSeen).toLocaleString()) : 'Never'}</td></tr>`).join('') +
+            '</tbody></table></div>');
+    }
+    if (!parts.length) parts.push('<span class="muted">No endpoint data</span>');
+    target.innerHTML = parts.join('');
+}
+
+async function loadEndpoints() {
+    const body = document.getElementById('endpoints');
+    const params = new URLSearchParams({ limit: '1000' });
+    const query = document.getElementById('endpointSearch').value.trim();
+    const state = document.getElementById('endpointState').value;
+    if (query) params.set('q', query);
+    if (state) params.set('state', state);
+    body.innerHTML = '<tr><td colspan="9" class="muted">Loading...</td></tr>';
+    try {
+        const response = await request(`/api/endpoints?${params}`);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'endpoint request failed');
+        endpointData = data.endpoints;
+        document.getElementById('endpointCount').textContent = `${data.total} endpoints`;
+        if (!endpointData.length) { body.innerHTML = '<tr><td colspan="9" class="muted">No endpoints</td></tr>'; return; }
+        body.innerHTML = endpointData.map((endpoint, index) => `<tr data-endpoint-index="${index}">
+            <td>${escapeHtml(endpoint.reportedHost || 'Unreported')}</td>
+            <td class="rule" title="${escapeHtml(endpoint.sourceId)}">${escapeHtml(endpoint.sourceId)}</td>
+            <td class="risk-${escapeHtml(endpoint.risk)}">${escapeHtml(endpoint.risk)}</td>
+            <td class="state-${escapeHtml(endpoint.telemetryState)}">${escapeHtml(endpoint.telemetryState)}</td>
+            <td>${escapeHtml(endpoint.openAlerts)} / ${escapeHtml(endpoint.alerts)}</td>
+            <td>${escapeHtml(endpoint.events)}</td><td class="optional-col">${escapeHtml(endpoint.processes)}</td>
+            <td class="muted">${endpoint.lastSeen ? escapeHtml(new Date(endpoint.lastSeen).toLocaleString()) : 'Never'}</td>
+            <td><button class="btn btn-secondary" style="padding:4px 8px;font-size:12px" onclick="event.stopPropagation(); isolateEndpoint('${escapeHtml(endpoint.sourceId).replace(/'/g, '&#39;')}')">Isolate</button></td></tr>`).join('');
+        body.querySelectorAll('[data-endpoint-index]').forEach(row => row.addEventListener('click', () => showEndpoint(Number(row.dataset.endpointIndex))));
+    } catch (error) {
+        document.getElementById('endpointCount').textContent = error.message;
+        body.innerHTML = '<tr><td colspan="9" class="muted">Unable to load endpoints</td></tr>';
+    }
+}
+async function showEndpoint(index) {
+    const endpoint = endpointData[index];
+    if (!endpoint) return;
+    document.getElementById('modalTitle').textContent = endpoint.reportedHost || endpoint.sourceId;
+    document.getElementById('modalBody').innerHTML = '<div class="modal-section muted">Loading...</div>';
+    document.getElementById('modal').classList.add('show');
+    try {
+        const response = await request(`/api/endpoints/${encodeURIComponent(endpoint.sourceId)}`);
+        const detail = await response.json();
+        if (!response.ok) throw new Error(detail.error || 'endpoint request failed');
+        showJsonDetail(endpoint.reportedHost || endpoint.sourceId, detail);
+    } catch (error) {
+        document.getElementById('modalBody').textContent = error.message;
+    }
+}
+
+function huntTimestamp(id) {
+    const value = document.getElementById(id).value;
+    return value ? new Date(value).toISOString() : '';
+}
+async function loadEvents() {
+    const body = document.getElementById('events');
+    const errorTarget = document.getElementById('eventError');
+    const params = new URLSearchParams({ limit: document.getElementById('eventLimit').value });
+    for (const [name, id] of [['q', 'eventQuery'], ['type', 'eventType'], ['sourceId', 'eventSource'], ['processKey', 'eventProcess']]) {
+        const value = document.getElementById(id).value.trim();
+        if (value) params.set(name, value);
+    }
+    try {
+        const since = huntTimestamp('eventSince');
+        const until = huntTimestamp('eventUntil');
+        if (since) params.set('since', since);
+        if (until) params.set('until', until);
+    } catch (_) {
+        errorTarget.textContent = 'Invalid time range';
+        return;
+    }
+    errorTarget.textContent = '';
+    body.innerHTML = '<tr><td colspan="6" class="muted">Hunting...</td></tr>';
+    try {
+        const response = await request(`/api/events?${params}`);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'event hunt failed');
+        huntedEvents = data.events;
+        document.getElementById('eventCount').textContent = `${huntedEvents.length} shown / ${data.total} matched`;
+        if (!huntedEvents.length) { body.innerHTML = '<tr><td colspan="6" class="muted">No matching events</td></tr>'; return; }
+        body.innerHTML = huntedEvents.map((event, index) => `<tr data-event-index="${index}">
+            <td class="muted">${escapeHtml(new Date(event.timestamp).toLocaleString())}</td>
+            <td><code>${escapeHtml(event.type)}</code></td>
+            <td title="${escapeHtml(event.summary)}">${escapeHtml(event.summary || 'No summary')}</td>
+            <td class="optional-col" title="${escapeHtml(event.sourceId)}">${escapeHtml(event.sourceId)}</td>
+            <td class="optional-col" title="${escapeHtml(event.processKey)}">${escapeHtml(event.processKey || '')}</td>
+            <td>${escapeHtml(event.eventId)}</td></tr>`).join('');
+        body.querySelectorAll('[data-event-index]').forEach(row => row.addEventListener('click', () => {
+            const event = huntedEvents[Number(row.dataset.eventIndex)];
+            showJsonDetail(`${event.type} / ${event.eventId}`, event);
+        }));
+    } catch (error) {
+        errorTarget.textContent = error.message;
+        document.getElementById('eventCount').textContent = '';
+        body.innerHTML = '<tr><td colspan="6" class="muted">Unable to load events</td></tr>';
+    }
+}
+
+function treeHtml(nodes, depth = 0) {
+    return nodes.map(node => `<div class="tree-row" style="padding-left:${12 + depth * 18}px" data-process-key="${escapeHtml(node.processKey)}"><code>${escapeHtml(node.image || 'unknown')}</code><span class="tree-meta">PID ${escapeHtml(node.pid)} / ${escapeHtml(node.eventCount)} events</span></div>${treeHtml(node.children || [], depth + 1)}`).join('');
+}
+async function loadProcesses() {
+    try {
+        const response = await request('/api/process-tree');
+        if (!response.ok) throw new Error('process request failed');
+        const tree = await response.json();
+        const count = JSON.stringify(tree).match(/"processKey"/g)?.length || 0;
+        document.getElementById('processCount').textContent = `${count} process instances`;
+        document.getElementById('processTree').innerHTML = tree.length ? treeHtml(tree) : '<span class="muted">No process events</span>';
+        document.querySelectorAll('[data-process-key]').forEach(row => row.addEventListener('click', () => loadTimeline(row.dataset.processKey)));
+    } catch (_) { document.getElementById('processTree').textContent = 'Unable to load process tree'; }
+}
+async function loadTimeline(processKey) {
+    try {
+        const response = await request(`/api/process-timeline?processKey=${encodeURIComponent(processKey)}`);
+        if (!response.ok) throw new Error('timeline request failed');
+        const events = await response.json();
+        document.getElementById('timeline').innerHTML = events.length ? events.map(event => `<div class="tree-row"><span class="muted">${escapeHtml(new Date(event.timestamp).toLocaleString())}</span> <code>${escapeHtml(event.type)}</code><div class="muted">${escapeHtml(event.eventId)}</div></div>`).join('') : '<span class="muted">No events</span>';
+    } catch (_) { document.getElementById('timeline').textContent = 'Unable to load timeline'; }
+}
+
+function responseBody() {
+    const reason = document.getElementById('reason').value;
+    const action = document.getElementById('action').value;
+    if (action === 'isolate' || action === 'unisolate') return { reason };
+    let target;
+    try { target = JSON.parse(document.getElementById('target').value || '{}'); } catch (_) { target = 'Invalid JSON'; }
+    return { reason, target };
+}
+function stableResponseValue(value) {
+    if (Array.isArray(value)) return value.map(stableResponseValue);
+    if (!value || typeof value !== 'object') return value;
+    return Object.fromEntries(Object.keys(value).sort().map(key => [key, stableResponseValue(value[key])]));
+}
+function responseFingerprint(action, target) {
+    if (action === 'isolate' || action === 'unisolate') return `${action}:host`;
+    return `${action}:${JSON.stringify(stableResponseValue(target))}`;
+}
+function updateIsolationFormState() {
+    const action = document.getElementById('action').value;
+    const targetField = document.getElementById('target');
+    const targetLabel = document.querySelector('label[for="target"]');
+    const isolating = action === 'isolate' || action === 'unisolate';
+    if (targetField) {
+        targetField.disabled = isolating;
+        targetField.placeholder = isolating ? 'Not required for isolate/unisolate (only reason is sent)' : '{"processKey":"sensor-...:guid:..."}';
+        if (targetLabel) targetLabel.style.opacity = isolating ? '0.5' : '1';
+    }
+}
+function updatePreview(result) {
+    const action = document.getElementById('action').value;
+    document.getElementById('responsePreview').textContent = JSON.stringify(result || { endpoint: `/api/response/${action}`, effective_mode: 'determined_at_submission', request: responseBody() }, null, 2);
+}
+function lockUncertainResponse(fingerprint, detail) {
+    uncertainResponseTargets.set(fingerprint, detail);
+    updateResponseSubmitLock();
+    try{ updateDeleteFileFormState(); }catch(_){}
+}
+function acknowledgeUncertainResponse() {
+    if (!displayedUncertainFingerprint) return;
+    if (!confirm('Confirm that endpoint state and native/console audit records were manually reconciled. This only unlocks deliberate resubmission; it does not prove the prior command failed.')) return;
+    uncertainResponseTargets.delete(displayedUncertainFingerprint);
+    updateResponseSubmitLock();
+    try{ updateDeleteFileFormState(); }catch(_){}
+}
+function reconcileUncertainResponse() {
+    const action = document.getElementById('action').value;
+    document.getElementById('responseAuditAction').value = action;
+    document.getElementById('responseAuditStatus').value = 'outcome_unknown';
+    responseAuditOffset = 0;
+    loadResponseAudit();
+}
+function updateResponseSubmitLock() {
+    const action = document.getElementById('action').value;
+    const body = responseBody();
+    const isValidBody = body.target !== 'Invalid JSON';
+    const fingerprint = !isValidBody ? '' : responseFingerprint(action, body.target);
+    const detail = fingerprint ? uncertainResponseTargets.get(fingerprint) : null;
+    displayedUncertainFingerprint = detail ? fingerprint : '';
+    const button = document.getElementById('responseSubmit');
+    const warning = document.getElementById('responseUncertain');
+    button.disabled = responseSubmissionInFlight || Boolean(detail);
+    if (detail) {
+        warning.style.display = 'block';
+        warning.innerHTML = `<strong>EXECUTION MAY HAVE OCCURRED.</strong> The same action/target is locked after an ambiguous result (${escapeHtml(detail.status || 'transport failure')}). Do not retry blindly. <button class="btn btn-secondary" onclick="reconcileUncertainResponse()">Open matching history</button> <button class="btn btn-danger" onclick="acknowledgeUncertainResponse()">I manually reconciled this outcome</button>`;
+    } else {
+        warning.style.display = 'none';
+        warning.textContent = '';
+    }
+}
+document.getElementById('action').addEventListener('change', () => { updateIsolationFormState(); updatePreview(); updateResponseSubmitLock(); });
+async function submitResponse() {
+    const action = document.getElementById('action').value;
+    const body = responseBody();
+    if (body.target === 'Invalid JSON') { updatePreview({ error: 'Target identity must be valid JSON' }); return; }
+    if ((action === 'isolate' || action === 'unisolate') && !body.reason.trim()) { updatePreview({ error: 'Reason is required for isolate/unisolate' }); return; }
+    const fingerprint = responseFingerprint(action, body.target);
+    if (uncertainResponseTargets.has(fingerprint)) { updateResponseSubmitLock(); return; }
+    responseSubmissionInFlight = true;
+    updateResponseSubmitLock();
+    let response;
+    try {
+        response = await request(`/api/response/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, adminApiKey);
+        let result;
+        try { result = await response.json(); }
+        catch (error) {
+            lockUncertainResponse(fingerprint, { status: 'invalid_response_body', error: error.message });
+            updatePreview({ status: response.status, outcome: 'unknown', warning: 'The response body was invalid after submission; execution may have occurred. Reconcile manually before any retry.' });
+            return;
+        }
+        updatePreview({ http_status: response.status, ...result });
+        if (result.status === 'outcome_unknown') {
+            lockUncertainResponse(fingerprint, result);
+        }
+        responseAuditOffset = 0;
+        await loadResponseAudit();
+    } catch (error) {
+        lockUncertainResponse(fingerprint, { status: 'transport_failure_after_submit', error: error.message });
+        updatePreview({ outcome: 'unknown', error: error.message, warning: 'The request failed after submission began; execution may have occurred. Reconcile endpoint and audit state before any retry.' });
+    } finally {
+        responseSubmissionInFlight = false;
+        updateResponseSubmitLock();
+    }
+}
+
+async function refreshIsolationStatus() {
+    const statusEl = document.getElementById('isolationStatus');
+    const readinessEl = document.getElementById('isolationReadiness');
+    if (!statusEl || !readinessEl) return;
+    if (!adminApiKey) {
+        readinessEl.textContent = 'Admin key required';
+        statusEl.textContent = 'Enter the admin key and click Refresh isolation status.';
+        return;
+    }
+    readinessEl.textContent = 'Loading...';
+    statusEl.textContent = 'Loading isolation status...';
+    try {
+        const res = await request('/api/response/isolation/status', {}, adminApiKey);
+        const data = await res.json();
+        if (!res.ok) {
+            readinessEl.textContent = `Status: ${data.status || 'error'} (HTTP ${res.status})`;
+            statusEl.textContent = JSON.stringify(data, null, 2);
+            return;
+        }
+        readinessEl.textContent = data.isolated ? `isolated since ${data.isolatedSinceMs || 0}ms (elapsed ${data.elapsedMs || 0}ms)` : 'not isolated';
+        statusEl.textContent = JSON.stringify(data, null, 2);
+    } catch (e) {
+        readinessEl.textContent = 'Request failed';
+        statusEl.textContent = e.message;
+    }
+}
+async function isolateEndpoint(sourceId) {
+    if (!adminApiKey) { alert('Admin key required — enter it in Response -> Admin API key'); return; }
+    const reason = prompt(`Isolate host for ${sourceId}? Enter mandatory reason:`);
+    if (reason === null) return;
+    if (!reason.trim()) { alert('Reason is required'); return; }
+    const fp = responseFingerprint('isolate', undefined);
+    if (uncertainResponseTargets.has(fp)) { alert('Isolate is locked after an outcome_unknown result. Reconcile in Response history first.'); return; }
+    try {
+        const res = await request('/api/response/isolate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: reason.trim() }) }, adminApiKey);
+        let data;
+        try { data = await res.json(); } catch (_) { data = { status: res.status }; }
+        if (data.status === 'outcome_unknown') lockUncertainResponse(fp, data);
+        alert(res.ok ? `Isolate succeeded: ${data.status}` : `Isolate failed (${res.status}): ${data.error || data.status}`);
+        await refreshIsolationStatus();
+        await loadResponseAudit();
+        updatePreview({ http_status: res.status, ...data });
+    } catch (e) {
+        const fp2 = responseFingerprint('isolate', undefined);
+        lockUncertainResponse(fp2, { status: 'transport_failure_after_submit', error: e.message });
+        alert('Isolate request failed: ' + e.message);
+    }
+}
+function responseAuditSummary(record) {
+    const detail = { ...record };
+    for (const key of ['timestamp', 'action', 'status', 'effective_mode', 'reason', 'requestedBy']) delete detail[key];
+    return JSON.stringify(detail);
+}
+function responseAuditActionChanged() {
+    responseAuditOffset = 0;
+    document.getElementById('responseAuditStatus').value = '';
+    loadResponseAudit();
+}
+function changeResponseAuditPage(direction) {
+    if (direction < 0) responseAuditOffset = Math.max(0, responseAuditOffset - RESPONSE_AUDIT_PAGE_SIZE);
+    else if (responseAuditHasMore) responseAuditOffset += RESPONSE_AUDIT_PAGE_SIZE;
+    loadResponseAudit();
+}
+function updateResponseAuditStatuses(statuses) {
+    const select = document.getElementById('responseAuditStatus');
+    const selected = select.value;
+    select.innerHTML = '<option value="">All statuses</option>' + (statuses || []).map(status => `<option value="${escapeHtml(status)}">${escapeHtml(status.replace(/_/g, ' '))}</option>`).join('');
+    if ((statuses || []).includes(selected)) select.value = selected;
+}
+async function loadResponseAudit() {
+    const body = document.getElementById('responseAudit');
+    const count = document.getElementById('responseAuditCount');
+    if (!body || !count) return;
+    if (!adminApiKey) {
+        count.textContent = 'Admin key required';
+        body.innerHTML = '<tr><td colspan="7" class="muted">Enter the admin key to view response history</td></tr>';
+        return;
+    }
+    const params = new URLSearchParams({ limit: String(RESPONSE_AUDIT_PAGE_SIZE), offset: String(responseAuditOffset) });
+    const action = document.getElementById('responseAuditAction').value;
+    const status = document.getElementById('responseAuditStatus').value;
+    if (action) params.set('action', action);
+    if (status) params.set('status', status);
+    body.innerHTML = '<tr><td colspan="7" class="muted">Loading response history...</td></tr>';
+    try {
+        const response = await request(`/api/response/audit?${params}`, {}, adminApiKey);
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || `History request failed (${response.status})`);
+        updateResponseAuditStatuses(payload.supported_statuses);
+        responseAuditHasMore = Boolean(payload.has_more);
+        document.getElementById('responseAuditPrev').disabled = responseAuditOffset === 0;
+        document.getElementById('responseAuditNext').disabled = !responseAuditHasMore;
+        const integrity = payload.integrity || {};
+        const integrityWarnings = [];
+        if (integrity.window_truncated) integrityWarnings.push('older file bytes were not scanned');
+        if (integrity.malformed_count) integrityWarnings.push(`${integrity.malformed_count} malformed record(s)`);
+        if (integrity.oversized_count) integrityWarnings.push(`${integrity.oversized_count} oversized record(s)`);
+        if (integrity.invalid_utf8_count) integrityWarnings.push(`${integrity.invalid_utf8_count} invalid UTF-8 record(s)`);
+        if (integrity.truncated_tail) integrityWarnings.push('the final record may be crash-truncated');
+        count.textContent = `${payload.records.length} shown at offset ${responseAuditOffset} / ${payload.total_within_scan_window} matching records in bounded scan${integrityWarnings.length ? ` — INTEGRITY WARNING: ${integrityWarnings.join('; ')}` : ''}`;
+        if (!payload.records.length) {
+            body.innerHTML = '<tr><td colspan="7" class="muted">No matching response records</td></tr>';
+            return;
+        }
+        body.innerHTML = payload.records.map(record => {
+            const uncertain = record.status === 'outcome_unknown';
+            const statusText = uncertain ? 'outcome_unknown — MANUAL RECONCILIATION REQUIRED; DO NOT RETRY BLINDLY' : (record.status || 'unknown');
+            return `<tr${uncertain ? ' style="background:#3a2415"' : ''}>
+                <td class="muted">${escapeHtml(record.timestamp ? new Date(record.timestamp).toLocaleString() : 'N/A')}</td>
+                <td>${escapeHtml(record.action || 'unknown')}</td>
+                <td class="${uncertain ? 'sev-high' : ''}">${escapeHtml(statusText)}</td>
+                <td>${escapeHtml(record.effective_mode || 'unknown')}</td>
+                <td title="${escapeHtml(record.reason || '')}">${escapeHtml(record.reason || '')}</td>
+                <td class="muted">${escapeHtml(record.requestedBy || '')}</td>
+                <td title="${escapeHtml(responseAuditSummary(record))}">${escapeHtml(responseAuditSummary(record))}</td>
+            </tr>`;
+        }).join('');
+    } catch (error) {
+        responseAuditHasMore = false;
+        count.textContent = error.message;
+        body.innerHTML = '<tr><td colspan="7" class="muted">Unable to load response history</td></tr>';
+    }
+}
+
+/* ---- Threat Intelligence ---- */
+function tiPreview() {
+    const type = document.getElementById('tiType').value;
+    const value = document.getElementById('tiValue').value;
+    document.getElementById('tiResult').textContent = value
+        ? `Ready to lookup ${type}: ${value}` : 'Enter a value to lookup.';
+}
+async function tiLookup() {
+    const type = document.getElementById('tiType').value;
+    const value = document.getElementById('tiValue').value.trim();
+    if (!value) { document.getElementById('tiResult').textContent = 'Please enter a value.'; return; }
+    document.getElementById('tiResult').textContent = 'Querying...';
+    document.getElementById('tiSummary').innerHTML = '';
+    try {
+        const response = await request(`/api/threat-intel/lookup?${encodeURIComponent(type)}=${encodeURIComponent(value)}`);
+        const result = await response.json();
+        document.getElementById('tiResult').textContent = JSON.stringify(result, null, 2);
+        if (result.malicious !== undefined) {
+            const verdict = result.malicious > 0 ? 'malicious' : (result.suspicious > 0 ? 'suspicious' : 'clean');
+            const colors = { malicious: '#f85149', suspicious: '#d29922', clean: '#3fb950' };
+            document.getElementById('tiSummary').innerHTML =
+                `<div class="stat" style="border-color:${colors[verdict]}"><div class="num" style="color:${colors[verdict]}">${result.malicious}</div><div class="label">malicious</div></div>` +
+                `<div class="stat"><div class="num" style="color:#d29922">${result.suspicious}</div><div class="label">suspicious</div></div>` +
+                `<div class="stat"><div class="num" style="color:#3fb950">${result.harmless}</div><div class="label">harmless</div></div>` +
+                `<div class="stat"><div class="num" style="color:#58a6ff">${result.undetected}</div><div class="label">undetected</div></div>` +
+                (result.cached ? '<span class="muted" style="margin-left:10px">(cached)</span>' : '');
+        }
+    } catch (error) {
+        document.getElementById('tiResult').textContent = `Request failed: ${error.message}`;
+    }
+}
+async function loadTiCache() {
+    try {
+        const response = await request('/api/threat-intel/cache-stats');
+        const result = await response.json();
+        document.getElementById('tiResult').textContent = JSON.stringify(result, null, 2);
+        document.getElementById('tiSummary').innerHTML = `<div class="stat"><div class="num">${result.total}</div><div class="label">cached lookups</div></div>`;
+    } catch (error) {
+        document.getElementById('tiResult').textContent = `Request failed: ${error.message}`;
+    }
+}
+document.getElementById('tiType').addEventListener('change', tiPreview);
+
+/* ---- System Status ---- */
+async function loadSystemStatus() {
+    const target = document.getElementById('systemDetail');
+    const rulesTarget = document.getElementById('systemTopRules');
+    const statsTarget = document.getElementById('systemStats');
+    const statusTarget = document.getElementById('systemStatus');
+    target.textContent = 'Loading...';
+    try {
+        const response = await request('/api/system/status');
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'system status request failed');
+        target.innerHTML = `
+            <div class="field"><label>Uptime</label><div>${formatUptime(data.uptime)}</div></div>
+            <div class="field"><label>Memory (RSS)</label><div>${formatBytes(data.memory?.rss || 0)}</div></div>
+            <div class="field"><label>Memory (Heap)</label><div>${formatBytes(data.memory?.heapUsed || 0)} / ${formatBytes(data.memory?.heapTotal || 0)}</div></div>
+            <div class="field"><label>Endpoints</label><div>${data.endpoints?.total || 0} (${data.endpoints?.active || 0} active, ${data.endpoints?.stale || 0} stale)</div></div>
+            <div class="field"><label>Alerts</label><div>${data.alerts?.total || 0} (${data.alerts?.open || 0} open, rate: ${data.alerts?.rate || 'N/A'}/hr)</div></div>
+            <div class="field"><label>Events</label><div>${data.events?.total || 0} (last: ${data.events?.lastIngest !== 'N/A' ? new Date(data.events.lastIngest).toLocaleString() : 'N/A'})</div></div>
+            <div class="field"><label>Processes</label><div>${data.processes || 0}</div></div>
+            <div class="field"><label>WebSocket clients</label><div>${data.connectedClients || 0}</div></div>`;
+        if (data.topRules && data.topRules.length) {
+            rulesTarget.innerHTML = '<table style="width:100%"><thead><tr><th>Rule</th><th>Count</th></tr></thead><tbody>' +
+                data.topRules.map(rule => `<tr><td class="rule">${escapeHtml(rule.rule)}</td><td>${rule.count}</td></tr>`).join('') +
+                '</tbody></table>';
+        } else {
+            rulesTarget.textContent = 'No rule data';
+        }
+        if (statsTarget) {
+            statsTarget.innerHTML = [
+                ['endpoints', data.endpoints?.total || 0],
+                ['active', data.endpoints?.active || 0],
+                ['alerts', data.alerts?.total || 0],
+                ['open', data.alerts?.open || 0],
+                ['events', data.events?.total || 0],
+                ['processes', data.processes || 0],
+            ].map(([label, num]) => `<div class="stat"><div class="num">${num}</div><div class="label">${label}</div></div>`).join('');
+        }
+        if (statusTarget) statusTarget.textContent = 'Updated ' + new Date().toLocaleTimeString();
+    } catch (error) {
+        target.innerHTML = `<span class="muted">Unable to load system status: ${escapeHtml(error.message)}</span>`;
+    }
+}
+function formatUptime(seconds) {
+    const d = Math.floor(seconds / 86400);
+    const h = Math.floor((seconds % 86400) / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60);
+    const parts = [];
+    if (d) parts.push(`${d}d`);
+    if (h) parts.push(`${h}h`);
+    if (m) parts.push(`${m}m`);
+    parts.push(`${s}s`);
+    return parts.join(' ');
+}
+function formatBytes(bytes) {
+    if (!bytes) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+    return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + units[i];
+}
+
+/* ---- Rules & MITRE Statistics ---- */
+async function loadRules() {
+    const body = document.getElementById('rules');
+    const count = document.getElementById('rulesCount');
+    const tacticsTarget = document.getElementById('mitreTactics');
+    const techniquesTarget = document.getElementById('mitreTechniques');
+    const search = document.getElementById('ruleSearch').value.trim();
+    const severity = document.getElementById('ruleSeverity').value;
+    const limit = document.getElementById('ruleLimit').value;
+    body.innerHTML = '<tr><td colspan="12" class="muted">Loading...</td></tr>';
+    try {
+        const params = new URLSearchParams({ limit });
+        if (search) params.set('q', search);
+        if (severity) params.set('severity', severity);
+        const [rulesResponse, mitreResponse] = await Promise.all([
+            request(`/api/rules?${params.toString()}`),
+            request('/api/stats/mitre'),
+        ]);
+        const rulesPayload = await rulesResponse.json();
+        const rules = rulesPayload.rules || [];
+        const mitre = await mitreResponse.json();
+        if (!rulesResponse.ok) throw new Error('rules request failed');
+        count.textContent = `${rulesPayload.total} rules`;
+        if (!rules.length) { body.innerHTML = '<tr><td colspan="12" class="muted">No rules</td></tr>'; return; }
+        body.innerHTML = rules.map(rule => `<tr>
+            <td class="rule">${escapeHtml(rule.rule)}</td>
+            <td>${rule.count}</td>
+            <td class="sev-critical">${rule.bySeverity?.critical || 0}</td>
+            <td class="sev-high">${rule.bySeverity?.high || 0}</td>
+            <td class="sev-medium">${rule.bySeverity?.medium || 0}</td>
+            <td>${rule.bySeverity?.low || 0}</td>
+            <td>${rule.openCount ?? (rule.byStatus?.new || 0) + (rule.byStatus?.investigating || 0)}</td>
+            <td>${rule.byStatus?.resolved || 0}</td>
+            <td class="muted">${(rule.actions || []).join(', ') || 'N/A'}</td>
+            <td class="optional-col">${rule.endpointCount ?? 0}</td>
+            <td class="mitre-cell optional-col">${(rule.mitreTactic || []).map(t => `<span class="mitre" title="${escapeHtml(t)}">${escapeHtml(t)}</span>`).join(' ')}</td>
+            <td class="muted">${rule.lastSeen ? new Date(rule.lastSeen).toLocaleString() : 'N/A'}</td>
+        </tr>`).join('');
+        if (mitre && mitre.tactics && mitre.tactics.length) {
+            tacticsTarget.innerHTML = mitre.tactics.map(t => `<div class="tactic-list" style="margin:3px 0"><span>${escapeHtml(t.name)}</span> <span class="muted">${t.count}</span></div>`).join('');
+        } else {
+            tacticsTarget.textContent = 'No tactic data';
+        }
+        if (mitre && mitre.techniques && mitre.techniques.length) {
+            techniquesTarget.innerHTML = mitre.techniques.map(t => `<div class="mitre-list" style="margin:3px 0"><span>${escapeHtml(t.name)}</span> <span class="muted">${t.count}</span></div>`).join('');
+        } else {
+            techniquesTarget.textContent = 'No technique data';
+        }
+    } catch (error) {
+        body.innerHTML = `<tr><td colspan="12" class="muted">Unable to load rules: ${escapeHtml(error.message)}</td></tr>`;
+    }
+}
+
+/* ---- ATT&CK Coverage Report (rule catalog) ---- */
+function coverageQueryString(withFormat) {
+    const params = new URLSearchParams();
+    const sev = document.getElementById('coverageSeverity')?.value;
+    const tac = document.getElementById('coverageTactic')?.value.trim();
+    const sinceVal = document.getElementById('coverageSince')?.value;
+    if (sev) params.set('severity', sev);
+    if (tac) params.set('tactic', tac);
+    if (sinceVal) {
+        try { params.set('since', new Date(sinceVal).toISOString()); } catch (_) {}
+    }
+    if (withFormat) params.set('format', 'csv');
+    const qs = params.toString();
+    return qs ? `?${qs}` : '';
+}
+function exportCoverageCsv() {
+    const url = `/api/rules/coverage${coverageQueryString(true)}`;
+    const link = document.createElement('a');
+    link.href = url;
+    // Pass API key via header is not possible for anchor download; use fetch with blob fallback if readKey set
+    if (readKey) {
+        fetch(url, { headers: { 'X-API-Key': readKey } }).then(async r => {
+            if (!r.ok) throw new Error(await r.text());
+            const blob = await r.blob();
+            const href = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = href; a.download = 'coverage_export.csv'; a.click();
+            setTimeout(() => URL.revokeObjectURL(href), 5000);
+        }).catch(e => alert(`Export failed: ${e.message}`));
+        return;
+    }
+    link.download = 'coverage_export.csv';
+    link.click();
+}
+function exportCoverageGaps() {
+    // Backend dependency: GET /api/rules/coverage/gaps/export (auth read, X-API-Key: readKey memory only via fetch) — 只读 blob 下载，复用 exportCoverageCsv 的 fetch+X-API-Key→blob→createObjectURL→a[download] 模式；过滤条件复用 coverageQueryString(false) 保持现有过滤栏/分页/WS 不动；禁止任何触发动作
+    const url = `/api/rules/coverage/gaps/export${coverageQueryString(false)}`;
+    // 同证据/覆盖率导出模式：readKey 时走 fetch blob 以便携带 X-API-Key，否则走锚点下载
+    if (readKey) {
+        fetch(url, { headers: { 'X-API-Key': readKey } }).then(async r => {
+            if (!r.ok) throw new Error(await r.text());
+            const blob = await r.blob();
+            const href = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = href; a.download = 'coverage_gaps.csv'; a.click();
+            setTimeout(() => URL.revokeObjectURL(href), 5000);
+        }).catch(e => alert(`Export gaps failed: ${e.message}`));
+        return;
+    }
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'coverage_gaps.csv';
+    link.click();
+}
+async function loadCoverage() {
+    const summary = document.getElementById('coverageSummary');
+    const stats = document.getElementById('coverageStats');
+    const matrix = document.getElementById('coverageMatrix');
+    const neverFired = document.getElementById('coverageNeverFired');
+    const gaps = document.getElementById('coverageGaps');
+    stats.textContent = 'Loading...';
+    try {
+        const response = await request(`/api/rules/coverage${coverageQueryString(false)}`);
+        if (!response.ok) {
+            const payload = await response.json().catch(() => ({}));
+            throw new Error(payload.error || `HTTP ${response.status}`);
+        }
+        const data = await response.json();
+        summary.textContent = `${data.rulesFile || 'rules.json'}: ${data.coveragePct}% fired`;
+        stats.innerHTML =
+            `<div class="tactic-list"><span>Total rules</span> <span class="muted">${data.totalRules}</span></div>` +
+            `<div class="tactic-list"><span>Fired at least once</span> <span class="muted">${(data.firedRules || []).length}</span></div>` +
+            `<div class="tactic-list"><span>Coverage</span> <span class="muted">${data.coveragePct}%</span></div>` +
+            Object.entries(data.bySeverity || {}).sort().map(([sev, n]) =>
+                `<div class="tactic-list"><span class="sev-${escapeHtml(sev)}">${escapeHtml(sev)}</span> <span class="muted">${n}</span></div>`).join('');
+        const rows = [];
+        for (const tactic of data.tactics || []) {
+            for (const technique of tactic.techniques) {
+                rows.push(`<tr>
+                    <td><span class="mitre" title="${escapeHtml(tactic.tactic)}">${escapeHtml(tactic.tactic)}</span></td>
+                    <td>${escapeHtml(technique.technique)}</td>
+                    <td>${technique.ruleIds.length}</td>
+                    <td class="muted">${technique.ruleIds.map(id => escapeHtml(id)).join(', ')}</td>
+                </tr>`);
+            }
+        }
+        matrix.innerHTML = rows.length ? rows.join('') :
+            '<tr><td colspan="4" class="muted">No mapped rules</td></tr>';
+        neverFired.innerHTML = (data.neverFired || []).length
+            ? data.neverFired.map(id => `<span class="mitre" style="margin:2px">${escapeHtml(id)}</span>`).join(' ')
+            : 'All cataloged rules have fired';
+        // Backend dependency: GET /api/rules/coverage (auth read) 返回 {referenceGaps, gapsWithSuggestion?: [{technique, configKey, detector}]} — 并行后端新增 gapsWithSuggestion 字段提供每项启用建议（如 T1486 → ransom_burst），无建议项显示“暂无对应开关”；只读展示，禁止任何触发动作；复用 badge/muted 样式
+        if (Array.isArray(data.gapsWithSuggestion) && data.gapsWithSuggestion.length) {
+            gaps.innerHTML = data.gapsWithSuggestion.map(item => {
+                if (typeof item === 'string') return `<span style="display:inline-flex;align-items:center;margin:2px"><span class="mitre" style="margin:2px;background:#5a1d1d">${escapeHtml(item)}</span><span class="muted" style="font-size:11px;margin-left:4px">暂无对应开关</span></span>`;
+                const technique = item.technique || item.techniqueId || item.id || item.name || '';
+                const configKey = item.configKey || item.key || item.suggestion || '';
+                const detector = item.detector || item.detectorId || '';
+                const suggestion = configKey || detector || item.suggestion || '';
+                const detail = configKey && detector && configKey !== detector ? `${configKey} / ${detector}` : (suggestion || '');
+                const badge = `<span class="mitre" style="margin:2px;background:#5a1d1d">${escapeHtml(technique || String(item))}</span>`;
+                const hint = detail ? `<span class="muted" style="font-size:11px;margin-left:4px">→ ${escapeHtml(detail)}</span>` : `<span class="muted" style="font-size:11px;margin-left:4px">暂无对应开关</span>`;
+                return `<span style="display:inline-flex;align-items:center;margin:2px;flex-wrap:wrap">${badge}${hint}</span>`;
+            }).join(' ');
+        } else if ((data.referenceGaps || []).length) {
+            gaps.innerHTML = data.referenceGaps.map(t => `<span style="display:inline-flex;align-items:center;margin:2px"><span class="mitre" style="margin:2px;background:#5a1d1d">${escapeHtml(t)}</span><span class="muted" style="font-size:11px;margin-left:4px">暂无对应开关</span></span>`).join(' ');
+        } else {
+            gaps.innerHTML = 'No reference gaps';
+        }
+    } catch (error) {
+        stats.textContent = `Unable to load coverage: ${error.message}`;
+    }
+}
+
+/* ---- Export ---- */
+function exportAlerts() {
+    const severity = document.getElementById('exportSeverity').value;
+    const status = document.getElementById('exportStatus').value;
+    const params = new URLSearchParams();
+    if (severity) params.set('severity', severity);
+    if (status) params.set('status', status);
+    const url = `/api/export/alerts?${params}`;
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'edr_alerts_export.csv';
+    link.click();
+}
+function exportEvents() {
+    const type = document.getElementById('exportEventType').value.trim();
+    const sourceId = document.getElementById('exportSourceId').value.trim();
+    const params = new URLSearchParams();
+    if (type) params.set('type', type);
+    if (sourceId) params.set('sourceId', sourceId);
+    const url = `/api/export/events?${params}`;
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'edr_events_export.csv';
+    link.click();
+}
+
+/* ---- Enhanced Alert Detail ---- */
+function showAlert(index) {
+    const alert = alerts[index];
+    if (!alert) return;
+    currentAlertCaseId = alert.caseId;
+    document.getElementById('modalTitle').textContent = `${alert.rule} / ${alert.severity}`;
+    const event = alert.event || {};
+    const mitre = mitreBadges(alert);
+    const tactics = (alert.mitre_tactic || event.mitre_tactic || []).map(t => `<span class="tactic-list" style="display:inline;margin:1px 2px"><span>${escapeHtml(t)}</span></span>`).join('');
+    const summaryFields = [];
+    for (const key of ['image', 'command_line', 'file_path', 'reg_key', 'pipe_name', 'target_image', 'output', 'dns_query', 'remote_ip', 'user', 'hostname', 'password_spray_src_ip', 'password_spray_users', 'password_spray_success_user', 'kerberoast_requester', 'kerberoast_services']) {
+        if (event[key]) summaryFields.push(`<div class="field"><label>${escapeHtml(key)}</label><div>${escapeHtml(event[key])}</div></div>`);
+    }
+    // Evidence entry — show only when alert event contains auto_response_evidence_path (read-only, no trigger actions)
+    const evidencePathRaw = event.auto_response_evidence_path || alert.auto_response_evidence_path || event.evidence_path || '';
+    const evidencePath = typeof evidencePathRaw === 'string' ? evidencePathRaw.trim() : '';
+    const evidenceField = evidencePath ? `<div class="field"><label>Evidence</label><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="btn btn-secondary" style="padding:4px 10px;font-size:12px" onclick="openEvidenceFromAlert('${escapeHtml(evidencePath).replace(/'/g, '&#39;')}')">View Evidence</button><code title="${escapeHtml(evidencePath)}" style="word-break:break-all">${escapeHtml(evidencePath)}</code></div><div class="muted" style="font-size:11px;margin-top:4px">Read-only — <code>GET /api/evidence/:id/manifest</code> + <code>GET /api/evidence/:id/file?file=</code> allowlist (snapshot.txt/process_tree.json/alert.json/response.json/manifest.json)</div></div>` : '';
+    document.getElementById('modalBody').innerHTML = `
+        <div class="modal-section case-grid">
+            <section>
+                <h3>Investigation</h3>
+                <div class="field"><label for="triageAdminKey">Admin API key (memory only)</label><input id="triageAdminKey" class="input" type="password" autocomplete="off" placeholder="Not stored" oninput="setAdminKey(this)"></div>
+                <div class="field"><label for="caseStatus">Status</label><select id="caseStatus"><option value="new">New</option><option value="investigating">Investigating</option><option value="resolved">Resolved</option><option value="false_positive">False positive</option></select></div>
+                <div class="field"><label for="casePriority">Priority</label><select id="casePriority"><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select></div>
+                <div class="field"><label for="caseAssignee">Assignee</label><input id="caseAssignee" class="input" maxlength="256" placeholder="Analyst name"></div>
+                <div class="field"><label for="caseNote">Analyst note</label><textarea id="caseNote" rows="4" maxlength="2048"></textarea></div>
+                <button id="triageButton" class="btn" onclick="updateAlertTriage()">Update alert</button><span id="triageResult" class="form-status muted"></span>
+            </section>
+            <section>
+                <h3>Event Summary</h3>
+                ${summaryFields.join('')}
+                <div class="field"><label>Type</label><div>${escapeHtml(event.type || 'N/A')}</div></div>
+                <div class="field"><label>PID</label><div>${event.pid || 'N/A'}</div></div>
+                <div class="field"><label>Source</label><div>${escapeHtml(alert.sourceId || 'N/A')}</div></div>
+                <div class="field"><label>Timestamp</label><div>${escapeHtml(new Date(alert.timestamp).toLocaleString())}</div></div>
+                ${mitre ? `<div class="field"><label>MITRE Techniques</label><div>${mitre}</div></div>` : ''}
+                ${tactics ? `<div class="field"><label>MITRE Tactics</label><div>${tactics}</div></div>` : ''}
+                <div class="field"><label>Action</label><div>${escapeHtml(alert.action || 'N/A')}</div></div>
+                <div class="field"><label>Case ID</label><div class="rule">${escapeHtml(alert.caseId)}</div></div>
+                ${evidenceField}
+            </section>
+        </div>
+        <div class="modal-section"><h3>Activity</h3>
+            <div id="alertActivity" class="activity muted">Loading...</div>
+        </div>
+        <div class="modal-section"><h3>Related events (same host)</h3>
+            <div id="alertTimeline" class="activity muted">Loading...</div>
+        </div>
+        <div class="modal-section"><h3>Raw Alert Data</h3><pre id="alertRaw"></pre></div>`;
+    document.getElementById('triageAdminKey').value = adminApiKey;
+    document.getElementById('caseStatus').value = alert.triage?.status || 'new';
+    document.getElementById('casePriority').value = alert.triage?.priority || 'normal';
+    document.getElementById('caseAssignee').value = alert.triage?.assignee || '';
+    document.getElementById('caseNote').value = alert.triage?.note || '';
+    document.getElementById('alertRaw').textContent = JSON.stringify(alert, null, 2);
+    document.getElementById('modal').classList.add('show');
+    loadAlertActivity(alert.caseId);
+    loadAlertTimeline(alert.caseId);
+    try{ updateDeleteFileFormState(); }catch(_){}
+}
+
+async function loadAlertTimeline(caseId) {
+    const target = document.getElementById('alertTimeline');
+    if (!target || currentAlertCaseId !== caseId) return;
+    try {
+        const response = await request(`/api/alerts/${encodeURIComponent(caseId)}/timeline`);
+        if (!response.ok) throw new Error('timeline request failed');
+        const payload = await response.json();
+        if (!target || currentAlertCaseId !== caseId) return;
+        if (!payload.timeline.length) {
+            target.innerHTML = '<div class="muted">No related events</div>';
+            return;
+        }
+        target.innerHTML = payload.timeline.map((event, index) =>
+            `<details class="timeline-item">
+                <summary>${escapeHtml(new Date(event.timestamp).toLocaleString())} &mdash;
+                    ${escapeHtml(event.type)} &mdash; ${escapeHtml(event.summary || '')}</summary>
+                <pre>${escapeHtml(JSON.stringify(event.raw || event, null, 2))}</pre>
+            </details>`).join('');
+    } catch (_) {
+        if (target && currentAlertCaseId === caseId) target.innerHTML = '<div class="muted">Timeline unavailable</div>';
+    }
+}
+
+function connectSocket() {
+    if (socket) socket.close();
+    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    socket = new WebSocket(`${protocol}//${location.host}/ws`);
+    socket.onopen = () => socket.send(JSON.stringify({ type: 'auth', apiKey: readKey }));
+    socket.onmessage = event => {
+        try {
+            const message = JSON.parse(event.data);
+            if (message.type === 'alert') {
+                if (alertsOffset === 0) {
+                    alerts.unshift(message.data);
+                    alerts = alerts.slice(0, ALERTS_PAGE_SIZE);
+                    alertsTotal += 1;
+                    renderAlerts(alerts);
+                    renderAlertsPageInfo();
+                } else refreshAll();
+                refreshStats().catch(() => {});
+            }
+            if (message.type === 'alert_updated') {
+                const index = alerts.findIndex(alert => alert.caseId === message.data.caseId);
+                if (index >= 0) alerts[index] = message.data;
+                filterAlerts(); refreshStats().catch(() => {});
+                if (currentAlertCaseId === message.data.caseId) {
+                    const status = document.getElementById('caseStatus');
+                    const note = document.getElementById('caseNote');
+                    const raw = document.getElementById('alertRaw');
+                    if (status) status.value = message.data.triage.status;
+                    if (note) note.value = message.data.triage.note;
+                    if (raw) raw.textContent = JSON.stringify(message.data, null, 2);
+                    loadAlertActivity(message.data.caseId);
+                }
+            }
+        } catch (_) {}
+    };
+    socket.onclose = () => setTimeout(connectSocket, 5000);
+}
+document.addEventListener('keydown', event => { if (event.key === 'Escape') closeModal(); });
+async function initialize() {
+    updateIsolationFormState();
+    updatePreview();
+    try{ updateDeleteFileFormState(); }catch(_){}
+    connectSocket();
+    loadPlaybooks();
+    await refreshAll();
+    const params = new URLSearchParams(location.search);
+    const viewIds = { alerts: 'alertsView', endpoints: 'endpointsView', events: 'eventsView', processes: 'processView', response: 'responseView', intel: 'threatIntelView', overview: 'overviewView' };
+    const viewId = viewIds[params.get('view')];
+    const tab = viewId && document.querySelector(`[data-view="${viewId}"]`);
+    if (tab) activateTab(tab);
+    const caseId = params.get('alert');
+    if (caseId) {
+        const index = alerts.findIndex(alert => alert.caseId === caseId);
+        if (index >= 0) showAlert(index);
+    }
+}
+initialize(); setInterval(refreshAll, 10000);
+</script>
+<script src="incidents.js"></script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+#ifndef EDR_PRIVILEGE_ESCALATION_DETECTOR_TESTS_H
+#define EDR_PRIVILEGE_ESCALATION_DETECTOR_TESTS_H
+
+void RunPrivilegeEscalationDetectorTests();
+
+#endif

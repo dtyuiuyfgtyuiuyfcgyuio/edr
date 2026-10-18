@@ -1,0 +1,21 @@
+{
+  "feed": "example-operator-feed",
+  "comment": "Operator-supplied IoC feed for user/threat_intel_detector.cpp. Replace every indicator below with values from your own intelligence source before enabling threat_intel.enable. The two entries present are documentation samples taken from public MITRE ATT&CK technique descriptions, not live indicators.",
+  "indicators": [
+    {
+      "id": "TI-SAMPLE-0001",
+      "type": "sha256",
+      "value": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "confidence": "high",
+      "source": "example-operator-feed",
+      "threat": "SampleFamily"
+    },
+    {
+      "id": "TI-SAMPLE-0002",
+      "type": "domain",
+      "value": "c2.example.invalid",
+      "confidence": "medium",
+      "source": "example-operator-feed"
+    }
+  ]
+}

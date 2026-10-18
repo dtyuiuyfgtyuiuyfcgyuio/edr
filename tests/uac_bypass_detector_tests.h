@@ -1,0 +1,6 @@
+#ifndef EDR_UAC_BYPASS_DETECTOR_TESTS_H
+#define EDR_UAC_BYPASS_DETECTOR_TESTS_H
+
+void RunUacBypassDetectorTests();
+
+#endif // EDR_UAC_BYPASS_DETECTOR_TESTS_H

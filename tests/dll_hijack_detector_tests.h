@@ -1,0 +1,6 @@
+#ifndef EDR_DLL_HIJACK_DETECTOR_TESTS_H
+#define EDR_DLL_HIJACK_DETECTOR_TESTS_H
+
+void RunDllHijackDetectorTests();
+
+#endif /* EDR_DLL_HIJACK_DETECTOR_TESTS_H */

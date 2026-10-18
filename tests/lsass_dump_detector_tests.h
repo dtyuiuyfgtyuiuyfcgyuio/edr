@@ -1,0 +1,6 @@
+#ifndef EDR_LSASS_DUMP_DETECTOR_TESTS_H
+#define EDR_LSASS_DUMP_DETECTOR_TESTS_H
+
+void RunLsassDumpDetectorTests();
+
+#endif // EDR_LSASS_DUMP_DETECTOR_TESTS_H

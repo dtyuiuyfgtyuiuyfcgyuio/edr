@@ -1,0 +1,60 @@
+{
+  "comment": "SilverFox RAT (银狐木马) IOC database — known indicators from public threat intelligence",
+  "version": 1,
+  "updated": "2026-07-30",
+  "iocs": {
+    "c2_domains": [
+      "api.tencentcnd.com", "cdn.cloudflareworkers.xyz",
+      "update.microsoft-ssl.com", "download.microsoft-soft.com",
+      "oss-cn-hangzhou-aliyuncs.com", "azureedge-cdn.net",
+      "app.aaaaa.com", "www.52ppp.top", "www.123pan.cn"
+    ],
+    "c2_ip_ranges": [
+      "154.84.1.0/24", "154.84.2.0/24", "194.26.29.0/24",
+      "103.45.15.0/24", "45.227.252.0/24", "185.254.76.0/24",
+      "91.241.19.0/24", "156.238.6.0/24"
+    ],
+    "c2_ports": [443, 8443, 4443, 8080, 7001, 7002, 3389],
+    "user_agents": [
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "Mozilla/5.0 (compatible; MSIE 10.0; Windows NT 6.2; Trident/6.0)"
+    ],
+    "mutex_names": [
+      "Global\\FoxHelper", "Global\\SilverFox_Mutex", "Global\\RAT_SESSION",
+      "Global\\WinUpdate_Mutex", "Global\\SystemHelper_Mutex",
+      "Global\\SecurityCenter_Mutex", "Global\\WindowsDefender_Mutex"
+    ],
+    "named_pipes": [
+      "\\\\.\\pipe\\foxhelper", "\\\\.\\pipe\\silverfox", "\\\\.\\pipe\\systemhelper",
+      "\\\\.\\pipe\\winsvc", "\\\\.\\pipe\\localsvc", "\\\\.\\pipe\\ntsvc"
+    ],
+    "file_paths": [
+      "C:\\Users\\*\\AppData\\Roaming\\Microsoft\\svchost.exe",
+      "C:\\Users\\*\\AppData\\Roaming\\Microsoft\\conhost.exe",
+      "C:\\Users\\*\\AppData\\Roaming\\Microsoft\\Windows\\*.exe",
+      "C:\\Users\\*\\AppData\\Roaming\\Microsoft\\Media\\*.exe",
+      "C:\\Users\\*\\AppData\\Local\\Temp\\Rar$EX*\\*.exe",
+      "C:\\Users\\*\\AppData\\Local\\Temp\\7z*\\*.exe",
+      "C:\\Users\\*\\AppData\\Local\\Microsoft\\WindowsApps\\*.scr",
+      "C:\\ProgramData\\Microsoft\\Windows\\Caches\\*.exe",
+      "C:\\Users\\*\\AppData\\Local\\Temp\\KB*.exe"
+    ],
+    "registry_persistence": [
+      "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\\svchost",
+      "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\\conhost",
+      "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\\MicrosoftUpdate",
+      "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run\\SecurityCenter",
+      "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce\\*fox*",
+      "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnce\\*update*"
+    ],
+    "scheduled_tasks": [
+      "MicrosoftUpdateTask", "WindowsUpdateTask", "SystemHelperTask",
+      "SecurityCenterTask", "FoxHelperTask", "SilverFoxUpdate"
+    ],
+    "process_tools": [
+      "Taskmgr3G.exe", "ProcessHacker.exe", "PCHunter.exe", "PowerTool.exe",
+      "Wireshark.exe", "HttpDebugger.exe", "Fiddler.exe"
+    ]
+  }
+}

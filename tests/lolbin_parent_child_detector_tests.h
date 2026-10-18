@@ -1,0 +1,6 @@
+#ifndef EDR_LOLBIN_PARENT_CHILD_DETECTOR_TESTS_H
+#define EDR_LOLBIN_PARENT_CHILD_DETECTOR_TESTS_H
+
+void RunLolbinParentChildDetectorTests();
+
+#endif

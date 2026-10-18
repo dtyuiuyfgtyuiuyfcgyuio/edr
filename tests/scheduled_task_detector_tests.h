@@ -1,0 +1,4 @@
+#ifndef EDR_SCHEDULED_TASK_DETECTOR_TESTS_H
+#define EDR_SCHEDULED_TASK_DETECTOR_TESTS_H
+void RunScheduledTaskDetectorTests();
+#endif

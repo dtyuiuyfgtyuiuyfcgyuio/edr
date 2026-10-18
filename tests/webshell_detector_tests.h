@@ -1,0 +1,6 @@
+#ifndef EDR_WEBSHELL_DETECTOR_TESTS_H
+#define EDR_WEBSHELL_DETECTOR_TESTS_H
+
+void RunWebshellDetectorTests();
+
+#endif // EDR_WEBSHELL_DETECTOR_TESTS_H

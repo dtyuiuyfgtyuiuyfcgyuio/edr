@@ -1,0 +1,6 @@
+#ifndef EDR_API_HOOK_DETECTOR_TESTS_H
+#define EDR_API_HOOK_DETECTOR_TESTS_H
+
+void RunApiHookDetectorTests();
+
+#endif // EDR_API_HOOK_DETECTOR_TESTS_H

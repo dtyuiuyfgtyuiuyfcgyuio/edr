@@ -1,0 +1,6 @@
+#ifndef EDR_LOLBIN_CHAIN_DETECTOR_TESTS_H
+#define EDR_LOLBIN_CHAIN_DETECTOR_TESTS_H
+
+void RunLolbinChainDetectorTests();
+
+#endif // EDR_LOLBIN_CHAIN_DETECTOR_TESTS_H

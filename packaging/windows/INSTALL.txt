@@ -1,0 +1,31 @@
+EDR Agent — Windows x64 安装说明
+
+包含：EDR 代理、本地 Web 控制台、Node.js 与 VC++ 应用本地运行库，以及可选的测试签名内核驱动。
+要求：Windows 10 2004 / Windows 11 x64，正常安装需要管理员权限。此为原型/测试版本，响应处置保持关闭。
+
+安装
+1. 双击 EDR-Setup-*.exe，默认安装代理和控制台。
+2. 程序安装到 Program Files\EDR Agent；可变配置、密钥、日志放到 ProgramData\EDRAgent。
+3. “安装完成后启动 EDR”默认勾选。代理注册为 edr 自动启动服务；控制台注册为 SYSTEM 启动任务 EDR Local Console。
+4. 在开始菜单打开 Open Web Console，访问 http://127.0.0.1:8080。
+5. 在开始菜单打开 Console access keys (administrator)，允许 UAC 后查看本机专属 Read API key，填入网页的 Read API key 输入框。
+6. 三个 API 角色使用独立随机密钥，仅管理员和 SYSTEM 可读取；真实进程终止、隔离、删除、主机隔离仍关闭。请勿转发 console-access.txt 或 console-keys.json。
+
+可选内核驱动
+驱动默认不勾选，是从当前源码编译的 ALL 变体（minifilter + WFP），仅有测试签名，不具备 Microsoft 生产驱动签名。
+目标测试虚拟机须事先完成测试签名与证书信任准备；驱动组件要求该证书已受信任且系统测试签名处于启用状态。
+公钥证书随驱动组件提供；也可从构建目录的公开证书取得。安装包不会导入证书、修改 Secure Boot、开启测试签名或重启系统。
+若未准备好目标虚拟机，请取消驱动组件，先使用用户态代理和控制台。Windows 还可能因 HVCI/其他代码完整性策略拒绝驱动；安装脚本会报告错误，不绕过系统策略。
+正常安装并选择驱动后，代理服务依赖 edrdrv；服务启动会由 Windows 加载驱动。
+
+修复、升级和卸载
+使用同一安装路径重新运行安装器；已有配置与密钥保留。新增组件只迁移其必要配置；取消已安装组件不等于移除组件。
+开始菜单或 Windows“应用和功能”可卸载。卸载先停止本安装的服务/任务，再移除程序；配置、密钥与历史日志保留在 ProgramData\EDRAgent。
+若驱动忙而无法卸载，卸载器会停止并保留文件，请先停止驱动消费者后重试。
+控制台故障日志：ProgramData\EDRAgent\console\service.log。代理日志：ProgramData\EDRAgent\agent\alerts.jsonl。
+不要在服务/任务仍运行时删除数据目录。程序目录可执行代码与数据目录分离，控制台只绑定 127.0.0.1，不开放公网监听。
+
+校验
+安装器旁的 .sha256 为 SHA-256 校验文件；EDR-payload-manifest.json 列出所有可选载荷文件的大小与 SHA-256。
+安装器本身未做商业发布代码签名。测试签名驱动并不等同于通过生产 Windows 内核签名校验或真实设备/Driver Verifier 验收。
+Node.js 授权文本在 runtime\node-LICENSE.txt；JavaScript 依赖的许可证保留在 node_modules 各模块中。

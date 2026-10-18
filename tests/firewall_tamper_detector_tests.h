@@ -1,0 +1,4 @@
+#ifndef EDR_FIREWALL_TAMPER_DETECTOR_TESTS_H
+#define EDR_FIREWALL_TAMPER_DETECTOR_TESTS_H
+void RunFirewallTamperDetectorTests();
+#endif

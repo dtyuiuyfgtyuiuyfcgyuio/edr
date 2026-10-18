@@ -1,0 +1,6 @@
+#ifndef EDR_REGISTRY_PERSISTENCE_DETECTOR_TESTS_H
+#define EDR_REGISTRY_PERSISTENCE_DETECTOR_TESTS_H
+
+void RunRegistryPersistenceDetectorTests();
+
+#endif

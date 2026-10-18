@@ -1,0 +1,6 @@
+#ifndef EDR_WINRM_ABUSE_DETECTOR_TESTS_H
+#define EDR_WINRM_ABUSE_DETECTOR_TESTS_H
+
+void RunWinrmAbuseDetectorTests();
+
+#endif // EDR_WINRM_ABUSE_DETECTOR_TESTS_H

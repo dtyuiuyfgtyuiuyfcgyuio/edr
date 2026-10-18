@@ -1,0 +1,6 @@
+#ifndef EDR_USB_EXFIL_DETECTOR_TESTS_H
+#define EDR_USB_EXFIL_DETECTOR_TESTS_H
+
+void RunUsbExfilDetectorTests();
+
+#endif // EDR_USB_EXFIL_DETECTOR_TESTS_H

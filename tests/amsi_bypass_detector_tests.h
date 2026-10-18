@@ -1,0 +1,6 @@
+#ifndef EDR_AMSI_BYPASS_DETECTOR_TESTS_H
+#define EDR_AMSI_BYPASS_DETECTOR_TESTS_H
+
+void RunAmsiBypassDetectorTests();
+
+#endif // EDR_AMSI_BYPASS_DETECTOR_TESTS_H

@@ -1,0 +1,15 @@
+{
+  "name": "edr-console",
+  "version": "1.0.0",
+  "private": true,
+  "description": "EDR Cloud Console Backend",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "ws": "^8.21.1"
+  }
+}

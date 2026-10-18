@@ -1,0 +1,6 @@
+#ifndef EDR_RESPONSE_STREAM_REPLAY_TESTS_H
+#define EDR_RESPONSE_STREAM_REPLAY_TESTS_H
+
+void RunResponseStreamReplayTests();
+
+#endif /* EDR_RESPONSE_STREAM_REPLAY_TESTS_H */

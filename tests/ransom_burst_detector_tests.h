@@ -1,0 +1,6 @@
+#ifndef EDR_RANSOM_BURST_DETECTOR_TESTS_H
+#define EDR_RANSOM_BURST_DETECTOR_TESTS_H
+
+void RunRansomBurstDetectorTests();
+
+#endif // EDR_RANSOM_BURST_DETECTOR_TESTS_H

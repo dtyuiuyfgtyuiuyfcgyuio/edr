@@ -1,0 +1,6 @@
+#ifndef EDR_REG_MODIFY_DETECTOR_TESTS_H
+#define EDR_REG_MODIFY_DETECTOR_TESTS_H
+
+void RunRegModifyDetectorTests();
+
+#endif // EDR_REG_MODIFY_DETECTOR_TESTS_H

@@ -1,0 +1,6 @@
+#ifndef EDR_BEHAVIOR_ENRICHER_TESTS_H
+#define EDR_BEHAVIOR_ENRICHER_TESTS_H
+
+void RunBehaviorEnricherTests();
+
+#endif // EDR_BEHAVIOR_ENRICHER_TESTS_H

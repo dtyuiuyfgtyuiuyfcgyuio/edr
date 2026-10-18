@@ -1,0 +1,6 @@
+#ifndef EDR_PPID_SPOOF_DETECTOR_TESTS_H
+#define EDR_PPID_SPOOF_DETECTOR_TESTS_H
+
+void RunPpidSpoofDetectorTests();
+
+#endif // EDR_PPID_SPOOF_DETECTOR_TESTS_H

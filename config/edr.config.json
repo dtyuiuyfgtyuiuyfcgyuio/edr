@@ -1,0 +1,1263 @@
+{
+  "event_log_replay": {
+    "enable": false,
+    "checkpoint_directory": "%ProgramData%\\EDR\\checkpoints",
+    "max_pending_records": 0
+  },
+  "enable_driver_collector": false,
+  "driver_enable_file": true,
+  "driver_enable_net": true,
+  "driver_enable_block": false,
+  "driver_block_file_paths": [
+    "\\Windows\\System32\\drivers\\etc\\hosts"
+  ],
+  "driver_net_rules": [
+    {
+      "ip": "192.0.2.1",
+      "port": 443
+    }
+  ],
+  "enable_file_fallback": true,
+  "enable_net_fallback": true,
+  "enable_net_etw": true,
+  "net_etw_udp": false,
+  "enable_reg_baseline": false,
+  "enable_reg_watch": true,
+  "enable_proc_etw": true,
+  "enable_rat_analyzer": true,
+  "rat_analyzer_scan_interval_seconds": 15,
+  "rat_analyzer_min_score": 15,
+  "rat_analyzer_dedup_window_seconds": 300,
+  "rat_analyzer_state_capacity": 4096,
+  "silverfox": {
+    "enable": true,
+    "ioc_path": "rules\\silverfox_ioc.v2.json",
+    "correlation_window_seconds": 600,
+    "state_capacity": 4096
+  },
+  "behavior_enrich": {
+    "enable": false,
+    "state_capacity": 8192,
+    "window_seconds": 300,
+    "lsass_burst_window_seconds": 60,
+    "lsass_burst_threshold_bytes": 4194304
+  },
+  "c2_beacon": {
+    "enable": false,
+    "window_seconds": 3600,
+    "state_capacity": 4096,
+    "min_repeat_endpoints": 3,
+    "min_connections_per_endpoint": 2
+  },
+  "ransom_burst": {
+    "enable": false,
+    "window_seconds": 120,
+    "state_capacity": 8192,
+    "min_file_count": 30,
+    "min_distinct_extensions": 15
+  },
+  "logon_success": {
+    "enable": false,
+    "window_seconds": 300,
+    "state_capacity": 8192,
+    "min_failures": 10
+  },
+  "logon_brute_force": {
+    "enable": false,
+    "window_seconds": 300,
+    "state_capacity": 8192,
+    "min_failures": 10,
+    "dedup_seconds": 600
+  },
+  "password_spray": {
+    "enable": false,
+    "window_seconds": 900,
+    "state_capacity": 4096,
+    "min_failures": 10,
+    "min_distinct_users": 5,
+    "success_followup_seconds": 300,
+    "dedup_seconds": 600,
+    "max_failures_per_source": 256
+  },
+  "kerberoast_burst": {
+    "enable": false,
+    "window_seconds": 600,
+    "state_capacity": 4096,
+    "min_service_count": 5,
+    "dedup_seconds": 600,
+    "max_services_per_requester": 128
+  },
+  "process_hollowing": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 30,
+    "state_capacity": 1024
+  },
+  "dll_hijack": {
+    "enable": false
+  },
+  "defense_evasion": {
+    "enable": false,
+    "window_seconds": 300,
+    "state_capacity": 1024,
+    "min_techniques": 2,
+    "dedup_seconds": 600
+  },
+  "discovery_recon": {
+    "enable": false,
+    "window_seconds": 300,
+    "state_capacity": 2048,
+    "min_techniques": 3,
+    "dedup_seconds": 600
+  },
+  "dns_failure": {
+    "enable": false,
+    "window_seconds": 300,
+    "state_capacity": 2048,
+    "min_queries": 20,
+    "min_distinct_names": 10,
+    "min_failure_percent": 80,
+    "min_high_entropy_failures": 5
+  },
+  "dns_beacon": {
+    "enable": false,
+    "window_seconds": 300,
+    "state_capacity": 4096,
+    "min_query_count": 50,
+    "min_high_entropy_count": 20
+  },
+  "behavior_baseline": {
+    "enable": false,
+    "training_seconds": 86400,
+    "window_seconds": 3600,
+    "dedup_seconds": 600,
+    "state_capacity": 4096,
+    "min_score": 55,
+    "pollution_score": 75,
+    "baseline_path": "%ProgramData%\\EDR\\behavior_baseline.json",
+    "max_age_days": 30,
+    "max_observations": 64
+  },
+  "lateral_move": {
+    "enable": false,
+    "window_seconds": 120,
+    "state_capacity": 4096,
+    "min_dest_count": 5,
+    "score_per_dest": 15
+  },
+  "port_scan": {
+    "enable": false,
+    "window_seconds": 30,
+    "state_capacity": 4096,
+    "min_distinct_ports": 20
+  },
+  "persist_chain": {
+    "enable": false,
+    "window_seconds": 600,
+    "state_capacity": 4096,
+    "min_mechanisms": 3
+  },
+  "lolbin_parent_child": {
+    "enable": false,
+    "min_score": 50
+  },
+  "lolbin_chain": {
+    "enable": false,
+    "window_seconds": 600,
+    "state_capacity": 4096,
+    "min_distinct_children": 3
+  },
+  "powershell_download_execute": {
+    "enable": false,
+    "window_seconds": 600,
+    "state_capacity": 4096,
+    "min_distinct_scripts": 3
+  },
+  "rdp_chain": {
+    "enable": false,
+    "window_seconds": 600,
+    "state_capacity": 4096,
+    "min_distinct_sources": 2
+  },
+  "uac_bypass_chain": {
+    "enable": false,
+    "window_seconds": 300,
+    "state_capacity": 1024,
+    "min_distinct_keys": 1
+  },
+  "wmi_persistence": {
+    "enable": false,
+    "window_seconds": 600,
+    "state_capacity": 4096,
+    "min_matches": 1
+  },
+  "ransom_precursor": {
+    "enable": false,
+    "window_seconds": 180,
+    "state_capacity": 256,
+    "min_techniques": 2,
+    "dedup_seconds": 300
+  },
+  "memory_scanner": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 60,
+    "state_capacity": 2048
+  },
+  "driver_load": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "fileless_attack": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 4096
+  },
+  "api_hook": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "enable_imonitor": false,
+  "enable_imonitor_process_open": false,
+  "enable_imonitor_remote_thread": false,
+  "enable_imonitor_credential_monitor": false,
+  "enable_imonitor_injection_deep": false,
+  "enable_hooks_rpc_create_process": false,
+  "enable_hooks_windows_hook": false,
+  "enable_hooks_service": false,
+  "enable_hooks_com": false,
+  "enable_hooks_injection": false,
+  "enable_hooks_handle": false,
+  "enable_hooks_input": false,
+  "enable_hooks_system": false,
+  "enable_hooks_surveillance": false,
+  "enable_hooks_powershell": false,
+  "enable_sysmon": false,
+  "enable_sysmon_image_load": false,
+  "enable_sysmon_process_access": false,
+  "enable_sysmon_remote_thread": false,
+  "enable_security_log": false,
+  "security_log_queue_capacity": 4096,
+  "security_log_workers": 4,
+  "security_log_max_xml_bytes": 524288,
+  "enable_wmi_collector": false,
+  "wmi_queue_capacity": 512,
+  "wmi_workers": 2,
+  "wmi_max_xml_bytes": 262144,
+  "enable_taskscheduler_log": false,
+  "taskscheduler_queue_capacity": 512,
+  "taskscheduler_workers": 2,
+  "taskscheduler_max_xml_bytes": 131072,
+  "enable_defender_log": false,
+  "defender_queue_capacity": 512,
+  "defender_workers": 2,
+  "defender_max_xml_bytes": 262144,
+  "enable_rdp_log": false,
+  "rdp_queue_capacity": 512,
+  "rdp_workers": 2,
+  "rdp_max_xml_bytes": 131072,
+  "enable_powershell_log": false,
+  "powershell_queue_capacity": 512,
+  "powershell_workers": 2,
+  "powershell_max_xml_bytes": 524288,
+  "powershell_max_script_chars": 131072,
+  "powershell_reassembly": {
+    "enable": false,
+    "max_fragments": 64,
+    "max_assembled_bytes": 1048576,
+    "state_capacity": 256,
+    "max_buffered_bytes": 33554432,
+    "timeout_seconds": 30
+  },
+  "enable_startup_watch": false,
+  "startup_watch_dirs": [],
+  "enable_image_load": false,
+  "image_load_queue_capacity": 1024,
+  "enable_privilege_esc": false,
+  "privilege_esc_queue_capacity": 512,
+  "privilege_esc_workers": 2,
+  "privilege_esc_max_xml_bytes": 262144,
+  "enable_dns_etw": false,
+  "enable_usb_monitor": false,
+  "usb_poll_ms": 5000,
+  "usb_dedup_window_ms": 60000,
+  "enable_listener_monitor": false,
+  "listener_poll_ms": 10000,
+  "remote_access": {
+    "enable": false,
+    "window_seconds": 300,
+    "state_capacity": 2048
+  },
+  "enable_service_monitor": false,
+  "service_poll_ms": 15000,
+  "enable_critical_process_monitor": false,
+  "critical_process_poll_ms": 5000,
+  "critical_process_missing_threshold": 2,
+  "critical_process_images": [
+    "MsMpEng.exe",
+    "msmpeng.exe"
+  ],
+  "enable_fim_monitor": false,
+  "fim_poll_ms": 60000,
+  "fim_max_file_bytes": 67108864,
+  "fim_watch_files": [
+    "C:\\Windows\\System32\\drivers\\etc\\hosts",
+    "C:\\Windows\\System32\\drivers\\etc\\networks"
+  ],
+  "enable_share_monitor": false,
+  "share_poll_ms": 30000,
+  "enable_local_account_monitor": false,
+  "local_account_poll_ms": 60000,
+  "local_account_watch_groups": [
+    "Administrators",
+    "Remote Desktop Users",
+    "Backup Operators"
+  ],
+  "enable_firewall_monitor": false,
+  "firewall_poll_ms": 30000,
+  "enable_etw_tamper_monitor": false,
+  "etw_tamper_poll_ms": 30000,
+  "etw_tamper_protected_guids": [
+    "{A0C1853B-5C40-4B15-8766-3CF1C58F985A}",
+    "{5770385F-C22A-43E0-BF4C-06F5698FFBD9}",
+    "{2D576B3D-2CEC-4A63-84A6-523F4F0A5D1B}",
+    "{22FB2CD6-0E7B-422B-A0C7-2FAD1FD0E716}",
+    "{7DD42A49-5329-4832-8DFD-43D979153A88}",
+    "{1C95126E-7EEA-49A9-A3FE-A378B03DDB4D}",
+    "{EDD08927-9CC4-4E65-B970-C2560FB5C289}",
+    "{11CD958A-C507-4EF3-B3F2-5FD9DFBD2C78}"
+  ],
+  "etw_tamper_watch_sessions": true,
+  "etw_tamper_scan_processes": false,
+  "etw_tamper_skip_images": [],
+  "enable_host_isolation": false,
+  "host_isolation_allowed_ports": "443,8080",
+  "host_isolation_management_ip": "",
+  "enable_process_tree_enrich": false,
+  "process_tree_max_depth": 5,
+  "process_tree_prune_age_ms": 3600000,
+  "sysmon_queue_capacity": 512,
+  "sysmon_workers": 2,
+  "sysmon_max_xml_bytes": 262144,
+  "file_reputation": {
+    "enable": false,
+    "max_file_bytes": 67108864,
+    "cache_only_trust": true
+  },
+  "amsi": {
+    "enable": false,
+    "max_content_chars": 4096
+  },
+  "enable_proc_poll": true,
+  "watch_dirs": [
+    "%TEMP%",
+    "C:\\Users\\Public\\Downloads"
+  ],
+  "net_poll_ms": 5000,
+  "reg_baseline_ms": 60000,
+  "alerts_path": "alerts.jsonl",
+  "redact": true,
+  "eventlog": true,
+  "rules_path": "rules\\rules.json",
+  "rule_reload": {
+    "enable": false,
+    "poll_seconds": 30
+  },
+  "reporter": {
+    "enable": false,
+    "url": "http://127.0.0.1:8080/ingest",
+    "api_key": "",
+    "spool": {
+      "enable": false,
+      "directory": "%ProgramData%\\EDR\\spool\\alerts",
+      "event_directory": "%ProgramData%\\EDR\\spool\\events",
+      "max_records": 1000,
+      "max_bytes": 16777216,
+      "max_item_bytes": 1048576
+    }
+  },
+  "webhook": {
+    "enable": false,
+    "url": "",
+    "timeout_seconds": 5,
+    "queue_capacity": 256
+  },
+  "response_channel": {
+    "enable": false,
+    "enable_process_termination": false,
+    "enable_quarantine": false,
+    "enable_process_suspend": false,
+    "enable_process_resume": false,
+    "quarantine_dir": "",
+    "quarantine_max_file_bytes": 268435456,
+    "max_tree_size": 32,
+    "pipe_name": "\\\\.\\pipe\\edr-response-v1",
+    "command_key_file": "",
+    "audit_path": ""
+  },
+  "auto_response": {
+    "enable": false,
+    "min_severity": "high",
+    "max_per_minute": 4,
+    "tree_termination": false,
+    "suspend_before_terminate": false
+  },
+  "credential_dumping": {
+    "enable": false,
+    "window_seconds": 300,
+    "state_capacity": 4096
+  },
+  "data_exfiltration": {
+    "enable": false,
+    "window_seconds": 300,
+    "state_capacity": 4096,
+    "dns_tunnel_threshold": 50
+  },
+  "privilege_escalation": {
+    "enable": false,
+    "window_seconds": 300,
+    "state_capacity": 4096
+  },
+  "ntlm_relay": {
+    "enable": false,
+    "window_seconds": 600,
+    "state_capacity": 4096,
+    "min_events": 3
+  },
+  "browser_theft": {
+    "enable": false,
+    "window_seconds": 300,
+    "state_capacity": 2048
+  },
+  "browser_extension": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024,
+    "allowlist": []
+  },
+  "cryptominer": {
+    "enable": false,
+    "window_seconds": 600,
+    "state_capacity": 2048
+  },
+  "anti_analysis": {
+    "enable": false,
+    "window_seconds": 300,
+    "state_capacity": 4096
+  },
+  "script_host_abuse": {
+    "enable": false
+  },
+  "account_op": {
+    "enable": false
+  },
+  "tunnel_tool": {
+    "enable": false
+  },
+  "surveillance": {
+    "enable": false,
+    "window_seconds": 300,
+    "state_capacity": 4096,
+    "min_signals": 2
+  },
+  "clipboard_theft": {
+    "enable": false,
+    "min_score": 55,
+    "window_seconds": 120,
+    "state_capacity": 4096,
+    "min_reads": 3,
+    "dedup_window_seconds": 300
+  },
+  "webshell": {
+    "enable": false,
+    "state_capacity": 1024,
+    "dedup_seconds": 300
+  },
+  "usb_exfil": {
+    "enable": false,
+    "window_seconds": 300,
+    "state_capacity": 1024,
+    "min_file_count": 10,
+    "dedup_seconds": 600
+  },
+  "registry_persistence": {
+    "enable": false,
+    "window_seconds": 300,
+    "state_capacity": 2048
+  },
+  "anti_forensics": {
+    "enable": false,
+    "window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "time_change": {
+    "enable": false,
+    "window_seconds": 300,
+    "state_capacity": 1024,
+    "tolerance_seconds": 5,
+    "big_jump_seconds": 86400
+  },
+  "privileged_group": {
+    "enable": false,
+    "window_seconds": 600,
+    "state_capacity": 1024
+  },
+  "firewall_rule": {
+    "enable": false
+  },
+  "share_change": {
+    "enable": false
+  },
+  "local_account": {
+    "enable": false
+  },
+  "canary": {
+    "enable": false,
+    "poll_ms": 30000,
+    "max_file_bytes": 10485760,
+    "files": [],
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "masquerade": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "ppid_spoof": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 2048
+  },
+  "net_discovery": {
+    "enable": false,
+    "min_score": 55,
+    "window_seconds": 300,
+    "burst_threshold": 4,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "host_profile": {
+    "enable": false,
+    "min_score": 55,
+    "window_seconds": 300,
+    "min_categories": 3,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "private_key": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "doh_abuse": {
+    "enable": false,
+    "window_seconds": 300,
+    "state_capacity": 1024,
+    "min_repeat_count": 3
+  },
+  "svc_install": {
+    "enable": false
+  },
+  "shadow_copy": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "persist_burst": {
+    "enable": false,
+    "window_seconds": 300,
+    "state_capacity": 1024,
+    "min_score": 55,
+    "dedup_seconds": 300
+  },
+  "mailbox_rule": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "mailbox_delegate": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "llmnr_poison": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "netprovider_persist": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "password_vault": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "arp_poison": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "cloud_metadata": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "gpp_password": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "control_panel_proxy": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "hidden_user_account": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "password_policy_discovery": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "msi_package_install": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "log_enumeration": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "cmstp_bypass": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "file_assoc": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "hidden_window": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "office_persist": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "shortcut_persist": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "indirect_exec": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "screensaver_persist": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "svc_path_abuse": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "service_dll_hijack": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "dll_search_order": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "svc_recovery": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "com_hijack": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "winlogon_hijack": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "mshta_abuse": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "wsl_abuse": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "software_discovery": {
+    "enable": false,
+    "min_score": 55,
+    "window_seconds": 300,
+    "min_categories": 2,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "net_share_discovery": {
+    "enable": false,
+    "min_score": 55,
+    "window_seconds": 300,
+    "min_commands": 3,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "nonstandard_port_egress": {
+    "enable": false,
+    "min_score": 55,
+    "window_seconds": 300,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "msdt_abuse": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "iso_mount": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "ps_profile": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "downgrade_attack": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "dpapi_abuse": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "email_collection": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "etw_script_tamper": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "forced_auth": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "golden_ticket": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024,
+    "window_seconds": 600,
+    "min_repeat_count": 3
+  },
+  "gpo_abuse": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "hidden_artifacts": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024,
+    "window_seconds": 600
+  },
+  "history_tamper": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "hive_copy": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "hosts_redirect": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "iis_module": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "input_simulation": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024,
+    "window_seconds": 600,
+    "burst_threshold": 40
+  },
+  "logon_script_persist": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "lsa_package": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "motw_bypass": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "netsh_helper": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "network_sniffing": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "ntds_dit": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "pass_the_hash": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "password_cracking": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "path_interception": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "pe_anomaly": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024,
+    "max_file_bytes": 8388608
+  },
+  "ransom_ops": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "rdp_session_hijack": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "reg_cred_hunt": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "remote_exec": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "secboot_tamper": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "shim_db": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "signed_binary_abuse": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "sip_hijack": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "ssh_key_persistence": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "ticket_cache_abuse": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "token_impersonation": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "handle_guard": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "named_pipe_abuse": {
+    "enable": false,
+    "min_score": 55,
+    "window_seconds": 120,
+    "state_capacity": 4096,
+    "min_distinct_pids": 2,
+    "dedup_window_seconds": 300
+  },
+  "web_exfil": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "wifi_cred_theft": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024,
+    "window_seconds": 600,
+    "min_repeat_count": 3
+  },
+  "winrm_abuse": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "winrm_config_tamper": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "xsl_script": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "av_tamper": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "timestomp": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "lsass_dump": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 2048
+  },
+  "accessibility_hijack": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "acl_abuse": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "amsi_bypass": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "appinit_dll": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "as_rep_roast": {
+    "enable": false,
+    "window_seconds": 300,
+    "state_capacity": 2048,
+    "dedup_seconds": 300
+  },
+  "boot_provider_persist": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "cert_abuse": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "cor_profiler_hijack": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "cred_file_hunt": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "dcsync": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "dev_util_proxy": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "disk_wipe": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "inject_chain": {
+    "enable": false,
+    "window_seconds": 60,
+    "state_capacity": 4096,
+    "min_transition_score": 20
+  },
+  "attack_chain": {
+    "enable": false,
+    "window_seconds": 600,
+    "state_capacity": 4096
+  },
+  "hook_scan": {
+    "enable": false,
+    "poll_seconds": 600,
+    "max_entries": 1024
+  },
+  "hook_persistence": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "task_abuse": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024,
+    "delete_burst_threshold": 5,
+    "delete_burst_window_seconds": 60
+  },
+  "health": {
+    "enable": false,
+    "poll_seconds": 300,
+    "dispatch_timing": {
+      "enable": true,
+      "slow_warn_us": 50000,
+      "warn_cooldown_seconds": 30
+    }
+  },
+  "archive_staging": {
+    "enable": false,
+    "window_seconds": 300,
+    "state_capacity": 2048
+  },
+  "bits_abuse": {
+    "enable": false,
+    "window_seconds": 300,
+    "state_capacity": 2048
+  },
+  "obfuscation": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "reg_modify": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "wmi_exec": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "local_collect": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "lateral_transfer": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "dotnet_proxy_exec": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "threat_intel": {
+    "enable": false,
+    "feed_path": "rules\\threat_intel.json",
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 4096,
+    "reload_poll_seconds": 0
+  },
+  "lateral_chain": {
+    "enable": false,
+    "min_score": 55,
+    "window_seconds": 600,
+    "dedup_window_seconds": 300,
+    "state_capacity": 4096
+  },
+  "correlation": {
+    "enable": false,
+    "window_seconds": 1800,
+    "state_capacity": 2048,
+    "min_alerts_to_close": 2,
+    "incident_path": "incidents.jsonl",
+    "max_records": 100000,
+    "rollup_enable": true,
+    "rollup_min_stage_count": 4,
+    "rollup_min_score": 85,
+    "rollup_state_capacity": 1024
+  },
+  "eventlog_tamper": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  },
+  "ssh_abuse": {
+    "enable": false,
+    "min_score": 55,
+    "dedup_window_seconds": 300,
+    "state_capacity": 1024
+  }
+}

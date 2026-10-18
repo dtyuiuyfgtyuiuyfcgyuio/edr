@@ -1,0 +1,72 @@
+;;; edrdrv.inf - install edrdrv.sys as the EDR kernel service.
+;;;
+;;; The binary next to this INF must be one of the Phase B+C build outputs
+;;; renamed to edrdrv.sys (edr_none.sys / edr_wfp.sys / edr_minifilter.sys /
+;;; edr_all.sys). For the classic FltRegisterFilter/FltStartFiltering startup
+;;; (MINIFILTER and ALL variants) this service install alone is sufficient;
+;;; the Filter/instance sections are metadata for modern (umbrella) tooling
+;;; and are harmless for the classic path. NONE/WFP builds do not use FltMgr:
+;;; drop the "Dependencies = FltMgr" line for those variants.
+;;;
+;;; Install (elevated):  pnputil /add-driver edrdrv.inf /install
+;;; Uninstall:           pnputil /delete-driver oemNN.inf
+;;;
+;;; Kernel drivers must be signed or the host must be in test-signing mode:
+;;;   bcdedit /set testsigning on
+
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = "FSFilter Activity Monitor"
+ClassGuid   = {b86cff6a-6d0f-11d1-8b10-00c04fc2a0e3}
+Provider    = %ProviderName%
+DriverVer   = 08/05/2026,1.0.0.0
+
+[DestinationDirs]
+DefaultDestDir = 12
+
+[SourceDisksNames]
+1 = "EDR driver disk", disk1
+
+[SourceDisksFiles]
+edrdrv.sys = 1
+
+[DefaultInstall.NTamd64]
+OptionDesc = %ServiceDescription%
+CopyFiles  = EdrCopyFiles
+
+[DefaultInstall.NTamd64.Services]
+AddService = edrdrv, 0x00000002, EdrService
+
+[DefaultUninstall.NTamd64]
+DelFiles   = EdrCopyFiles
+
+[DefaultUninstall.NTamd64.Services]
+DelService = edrdrv, 0x200
+
+[EdrCopyFiles]
+edrdrv.sys
+
+[EdrService]
+DisplayName   = %ServiceName%
+Description   = %ServiceDescription%
+ServiceType   = 2          ; SERVICE_KERNEL_DRIVER
+StartType     = 3          ; SERVICE_DEMAND_START
+ErrorControl  = 1          ; SERVICE_ERROR_NORMAL
+ServiceBinary = %12%\edrdrv.sys
+Dependencies  = FltMgr     ; minifilter-bearing builds only
+
+[Filter]
+FilterType = FSFilter
+FilterName = %FilterName%
+
+[Filter.Instances]
+DefaultInstance = EdrdrvInstance
+
+[Filter.Instance.EdrdrvInstance]
+Altitude = "370000"
+
+[strings]
+ProviderName        = "EDR Agent"
+ServiceName         = "edrdrv"
+ServiceDescription  = "EDR kernel policy and monitoring driver"
+FilterName           = "edrdrv"

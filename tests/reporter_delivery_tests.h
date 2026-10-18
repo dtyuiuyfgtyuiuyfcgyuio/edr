@@ -1,0 +1,6 @@
+#ifndef EDR_REPORTER_DELIVERY_TESTS_H
+#define EDR_REPORTER_DELIVERY_TESTS_H
+
+void RunReporterDeliveryTests();
+
+#endif /* EDR_REPORTER_DELIVERY_TESTS_H */

@@ -1,0 +1,6 @@
+#ifndef EDR_TASK_ABUSE_DETECTOR_TESTS_H
+#define EDR_TASK_ABUSE_DETECTOR_TESTS_H
+
+void RunTaskAbuseDetectorTests();
+
+#endif // EDR_TASK_ABUSE_DETECTOR_TESTS_H

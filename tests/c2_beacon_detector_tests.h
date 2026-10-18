@@ -1,0 +1,6 @@
+#ifndef EDR_C2_BEACON_DETECTOR_TESTS_H
+#define EDR_C2_BEACON_DETECTOR_TESTS_H
+
+void RunC2BeaconDetectorTests();
+
+#endif // EDR_C2_BEACON_DETECTOR_TESTS_H

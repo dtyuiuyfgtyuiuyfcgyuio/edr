@@ -1,0 +1,6 @@
+#ifndef EDR_RDP_CHAIN_DETECTOR_TESTS_H
+#define EDR_RDP_CHAIN_DETECTOR_TESTS_H
+
+void RunRdpChainDetectorTests();
+
+#endif // EDR_RDP_CHAIN_DETECTOR_TESTS_H

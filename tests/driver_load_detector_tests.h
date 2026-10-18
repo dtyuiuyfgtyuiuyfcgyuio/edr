@@ -1,0 +1,6 @@
+#ifndef EDR_DRIVER_LOAD_DETECTOR_TESTS_H
+#define EDR_DRIVER_LOAD_DETECTOR_TESTS_H
+
+void RunDriverLoadDetectorTests();
+
+#endif // EDR_DRIVER_LOAD_DETECTOR_TESTS_H

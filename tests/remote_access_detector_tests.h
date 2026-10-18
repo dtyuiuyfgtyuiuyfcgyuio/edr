@@ -1,0 +1,6 @@
+#ifndef EDR_REMOTE_ACCESS_DETECTOR_TESTS_H
+#define EDR_REMOTE_ACCESS_DETECTOR_TESTS_H
+
+void RunRemoteAccessDetectorTests();
+
+#endif // EDR_REMOTE_ACCESS_DETECTOR_TESTS_H

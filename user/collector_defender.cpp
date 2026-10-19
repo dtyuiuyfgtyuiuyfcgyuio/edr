@@ -73,8 +73,7 @@ public:
 
         m_subscription = EvtSubscribe(nullptr, m_signalEvent,
             L"Microsoft-Windows-Windows Defender/Operational",
-            L"*[System[(EventID=1116 or EventID=1117 or EventID=5001 or "
-            L"EventID=5007)]]",
+            DefenderSubscriptionQuery(),
             bookmark, nullptr, nullptr, subscriptionFlags);
         const DWORD subscribeError = m_subscription == nullptr
             ? GetLastError() : ERROR_SUCCESS;

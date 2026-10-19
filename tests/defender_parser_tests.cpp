@@ -1,4 +1,5 @@
 #include <windows.h>
+#include <winevt.h>
 
 #include <algorithm>
 #include <cstdio>
@@ -84,6 +85,79 @@ void TestActionAndConfigurationEvents() {
           "DisableRealtimeMonitoring = 0x1");
 }
 
+void TestAsrEvents() {
+    struct AsrCase {
+        unsigned int id;
+        const char* operation;
+    };
+    const AsrCase cases[] = {
+        {1121, "ASR_BLOCKED"},
+        {1122, "ASR_AUDITED"},
+        {1129, "ASR_WARN_BYPASSED"},
+    };
+
+    for (const auto& test : cases) {
+        Event event;
+        const std::wstring xml = DefenderXml(test.id,
+            L"<Data Name='ID'>{11111111-2222-3333-4444-555555555555}</Data>"
+            L"<Data Name='Path'>C:\\Temp\\asr-target.exe</Data>"
+            L"<Data Name='Process Name'>C:\\Windows\\System32\\cmd.exe</Data>"
+            L"<Data Name='User'>LAB\\operator</Data>");
+        const bool parsed = ParseDefenderXml(xml, event);
+        CHECK(parsed);
+        if (!parsed) continue;
+
+        CHECK(event.type == EDR_EVT_DEFENDER);
+        CHECK(event.source == "defender_log");
+        CHECK(event.fields.at(field::kOperationType) ==
+              test.operation);
+        CHECK(event.fields.at(field::kDefenderEventId) ==
+              std::to_string(test.id));
+        CHECK(event.fields.at(field::kAsrRuleId) ==
+              "{11111111-2222-3333-4444-555555555555}");
+        CHECK(event.fields.at(field::kDetectionPath) ==
+              "C:\\Temp\\asr-target.exe");
+        CHECK(event.fields.at(field::kProcessName) ==
+              "C:\\Windows\\System32\\cmd.exe");
+        CHECK(event.fields.at(field::kDetectionUser) == "LAB\\operator");
+        CHECK(event.fields.at(field::kDefenderProviderPid) == "4321");
+        CHECK(event.pid == 0);
+        CHECK(event.fields.find(field::kPid) == event.fields.end());
+    }
+
+    Event missingGuid;
+    CHECK(ParseDefenderXml(DefenderXml(1121,
+        L"<Data Name='Path'>C:\\Temp\\one &amp; two.exe</Data>"
+        L"<Data Name='Process Name'>C:\\Windows\\System32\\cmd.exe</Data>"
+        L"<Data Name='Detection User'>LAB\\analyst</Data>"), missingGuid));
+    CHECK(missingGuid.fields.at(field::kDetectionPath) ==
+          "C:\\Temp\\one & two.exe");
+    CHECK(missingGuid.fields.at(field::kDetectionUser) == "LAB\\analyst");
+    CHECK(missingGuid.fields.find(field::kAsrRuleId) ==
+          missingGuid.fields.end());
+    CHECK(missingGuid.fields.at(field::kDefenderProviderPid) == "4321");
+    CHECK(missingGuid.pid == 0);
+
+    Event unsupported;
+    CHECK(!ParseDefenderXml(DefenderXml(1123, L""), unsupported));
+}
+
+void TestDefenderSubscriptionQuery() {
+    const std::wstring query = DefenderSubscriptionQuery();
+    CHECK(query ==
+        L"*[System[(EventID=1116 or EventID=1117 or EventID=5001 or "
+        L"EventID=5007 or EventID=1121 or EventID=1122 or EventID=1129)]]");
+    for (unsigned int id : {1116, 1117, 5001, 5007, 1121, 1122, 1129}) {
+        CHECK(query.find(L"EventID=" + std::to_wstring(id)) !=
+              std::wstring::npos);
+    }
+    CHECK(query.find(L"1123") == std::wstring::npos);
+    EVT_HANDLE result = EvtQuery(nullptr, L"Application", query.c_str(),
+                                EvtQueryChannelPath);
+    CHECK(result != nullptr);
+    if (result != nullptr) EvtClose(result);
+}
+
 void TestInvalidAndFallback() {
     Event event;
     CHECK(!ParseDefenderXml(DefenderXml(1000, L""), event));
@@ -100,10 +174,10 @@ void WriteConfig(const char* json) {
     output << json;
 }
 
-void TestProductionRules() {
+void TestProductionRules(const char* rulesPath) {
     RuleEngine engine;
     try {
-        engine.LoadFromFile("..\\rules\\rules.json");
+        engine.LoadFromFile(rulesPath);
     } catch (const std::exception& error) {
         std::cerr << "production rule load failed: " << error.what() << "\n";
         ++g_failures;
@@ -143,6 +217,42 @@ void TestProductionRules() {
     CHECK(!matched(action, "EDR-109"));
     action.fields[field::kDefenderStatus] = "Remediation failed";
     CHECK(matched(action, "EDR-109"));
+
+    struct AsrRuleCase {
+        unsigned int eventId;
+        const char* operation;
+        const char* ruleId;
+    };
+    const AsrRuleCase asrCases[] = {
+        {1121, "ASR_BLOCKED", "EDR-521"},
+        {1122, "ASR_AUDITED", "EDR-522"},
+        {1129, "ASR_WARN_BYPASSED", "EDR-523"},
+    };
+    for (const auto& test : asrCases) {
+        Event asr = Parse(DefenderXml(test.eventId,
+            L"<Data Name='ID'>{11111111-2222-3333-4444-555555555555}</Data>"
+            L"<Data Name='Path'>C:\\Temp\\asr-target.exe</Data>"));
+        CHECK(matched(asr, test.ruleId));
+
+        Event missingRuleGuid = asr;
+        missingRuleGuid.fields.erase(field::kAsrRuleId);
+        CHECK(!matched(missingRuleGuid, test.ruleId));
+        Event malformedRuleGuid = asr;
+        malformedRuleGuid.fields[field::kAsrRuleId] = "not-a-guid";
+        CHECK(!matched(malformedRuleGuid, test.ruleId));
+        Event wrongSource = asr;
+        wrongSource.fields[field::kSource] = "other_log";
+        CHECK(!matched(wrongSource, test.ruleId));
+        Event wrongType = asr;
+        wrongType.fields[field::kType] = "OTHER";
+        CHECK(!matched(wrongType, test.ruleId));
+        Event wrongEventId = asr;
+        wrongEventId.fields[field::kDefenderEventId] = "1123";
+        CHECK(!matched(wrongEventId, test.ruleId));
+        Event wrongOperation = asr;
+        wrongOperation.fields[field::kOperationType] = "CONFIG_CHANGED";
+        CHECK(!matched(wrongOperation, test.ruleId));
+    }
 }
 
 void TestConfig() {
@@ -180,12 +290,18 @@ void TestConfig() {
 
 } // namespace
 
-int main() {
+int main(int argc, char** argv) {
     TestMalwareDetected();
     TestActionAndConfigurationEvents();
+    TestAsrEvents();
+    TestDefenderSubscriptionQuery();
     TestInvalidAndFallback();
     TestConfig();
-    TestProductionRules();
+    if (argc < 2) {
+        std::cerr << "rules path argument is required\n";
+        return 2;
+    }
+    TestProductionRules(argv[1]);
     if (g_failures != 0) return 1;
     std::cout << "Defender parser tests passed\n";
     return 0;

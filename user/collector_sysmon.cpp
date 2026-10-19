@@ -74,14 +74,9 @@ public:
             return false;
         }
 
-        std::wstring query =
-            L"*[System[(EventID=1 or EventID=2 or EventID=3 or EventID=5 or EventID=6";
-        if (m_enableImageLoad) query += L" or EventID=7";
-        if (m_enableProcessAccess) query += L" or EventID=10";
-        if (m_enableRemoteThread) query += L" or EventID=8";
-        if (m_enableNamedPipe) query += L" or EventID=17 or EventID=18";
-        query += L" or EventID=11 or EventID=12 or EventID=13 or "
-                 L"EventID=14 or EventID=22)]]";
+        const std::wstring query = SysmonSubscriptionQuery(
+            m_enableImageLoad, m_enableProcessAccess, m_enableRemoteThread,
+            m_enableNamedPipe);
         m_subscription = EvtSubscribe(nullptr, m_signalEvent,
             L"Microsoft-Windows-Sysmon/Operational", query.c_str(), bookmark, nullptr,
             nullptr, subscriptionFlags);

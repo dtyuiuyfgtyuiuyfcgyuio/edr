@@ -448,6 +448,7 @@ const char* EventTypeName(uint16_t type) {
     case 56: return "RAT_ANALYZER";
     case 57: return "RDP_SESSION";
     case 58: return "INCIDENT_CORRELATED";
+    case 59: return "PROCESS_TAMPERING";
     default: return "UNKNOWN";
     }
 }

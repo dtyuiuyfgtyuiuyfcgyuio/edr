@@ -1,4 +1,6 @@
 #include "process_tree_builder.h"
+#include "event_bus.h"
+#include "edr_event.h"
 
 #include <windows.h>
 
@@ -33,6 +35,15 @@ std::string JsonEscape(const std::string& value) {
 }
 
 } // namespace
+
+void ProcessTreeBuilder::Observe(const Event& event) {
+    // Sysmon tampering identifies a subject, but supplies no parent evidence.
+    // Leave ancestry and the previously observed image unchanged.
+    if (event.pid == 0 || event.type == EDR_EVT_PROCESS_TAMPERING) return;
+    const auto image = event.fields.find(field::kImage);
+    AddParentChild(event.ppid, event.pid,
+        image == event.fields.end() ? "" : image->second);
+}
 
 void ProcessTreeBuilder::AddParentChild(uint32_t parentPid, uint32_t childPid,
                                         const std::string& image) {

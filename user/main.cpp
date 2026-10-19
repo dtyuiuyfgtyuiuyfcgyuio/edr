@@ -420,10 +420,7 @@ public:
         DispatchTimingScope duration(timing, event.type);
         if (DeliverReportOnlyEvent(event, reporter, redact, rules)) return;
         // Add process tree enrichment
-        if (processTree && event.pid > 0) {
-            processTree->AddParentChild(event.ppid, event.pid,
-                event.fields.count("image") ? event.fields.at("image") : "");
-        }
+        if (processTree) processTree->Observe(event);
 
         const bool scanWithAmsi = amsi && amsi->IsEligible(event);
         const bool enrichWithBehavior =

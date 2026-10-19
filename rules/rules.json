@@ -10889,6 +10889,68 @@
         "threat_intel_score": {"regex": "^(?:8[5-9]|9[0-9]|100)$"},
         "threat_intel_ioc_types": {"eq": "sha256"}
       }
+      },
+      {
+        "id": "EDR-521",
+        "severity": "high",
+        "action": "alert",
+        "condition": "all",
+        "mitre_tactic": ["Execution"],
+        "comments": "Microsoft Defender Operational event 1121: an attack surface reduction rule blocked an operation. Preserve the ASR rule GUID for investigation; different GUIDs cover different techniques, so no single ATT&CK technique or confirmed infection is inferred. Provider PID is metadata, not a response target.",
+        "match": {
+          "type": {"eq": "DEFENDER"},
+          "source": {"eq": "defender_log"},
+          "defender_event_id": {"eq": "1121"},
+          "operation_type": {"eq": "ASR_BLOCKED"},
+          "asr_rule_id": {"regex": "(?i)^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\\{[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\})$"}
+        }
+      },
+      {
+        "id": "EDR-522",
+        "severity": "low",
+        "action": "log",
+        "condition": "all",
+        "mitre_tactic": ["Execution"],
+        "comments": "Microsoft Defender Operational event 1122: an attack surface reduction rule fired in audit mode. This records a policy observation; it does not report a blocked operation or prove malicious execution. Keep raw rule GUID and event context for policy tuning.",
+        "match": {
+          "type": {"eq": "DEFENDER"},
+          "source": {"eq": "defender_log"},
+          "defender_event_id": {"eq": "1122"},
+          "operation_type": {"eq": "ASR_AUDITED"},
+          "asr_rule_id": {"regex": "(?i)^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\\{[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\})$"}
+        }
+      },
+      {
+        "id": "EDR-523",
+        "severity": "medium",
+        "action": "alert",
+        "condition": "all",
+        "mitre_tactic": ["Execution"],
+        "comments": "Microsoft Defender Operational event 1129: a user overrode an attack surface reduction rule in warn mode. This is a user override observation, not a block or a successful exploit. Review policy and rule GUID; no automatic response is requested.",
+        "match": {
+          "type": {"eq": "DEFENDER"},
+          "source": {"eq": "defender_log"},
+          "defender_event_id": {"eq": "1129"},
+          "operation_type": {"eq": "ASR_WARN_BYPASSED"},
+          "asr_rule_id": {"regex": "(?i)^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\\{[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\})$"}
+        }
+      },
+      {
+        "id": "EDR-524",
+        "severity": "high",
+        "action": "alert",
+        "condition": "all",
+        "mitre_attack": ["T1055.012"],
+        "mitre_tactic": ["Defense Evasion", "Privilege Escalation"],
+        "comments": "Sysmon Operational event 25 reports process image tampering, including hollowing and related image replacement techniques. Preserve the raw Type instead of claiming a specific mechanism. This distinct event does not create a process lifecycle transition and only requests an alert; the mapping is an investigative lead.",
+        "match": {
+          "type": {"eq": "PROCESS_TAMPERING"},
+          "source": {"eq": "sysmon"},
+          "sysmon_event_id": {"eq": "25"},
+          "pid": {"regex": "^[1-9][0-9]{0,9}$"},
+          "image": {"regex": "\\S"},
+          "process_tampering_type": {"regex": "\\S"}
+        }
     }
   ]
 }

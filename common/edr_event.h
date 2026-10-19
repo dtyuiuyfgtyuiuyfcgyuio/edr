@@ -88,6 +88,7 @@ extern "C" {
 #define EDR_EVT_INCIDENT_CORRELATED 58u /* user-mode synthetic: kill-chain roll-up
                                            published by the correlation layer, never
                                            collected from an OS telemetry source */
+#define EDR_EVT_PROCESS_TAMPERING 59u /* user-mode Sysmon process image tampering */
 
 /* flags bits */
 #define EDR_FLAG_TRUNCATED            0x1u /* some field was cut to fit limits */

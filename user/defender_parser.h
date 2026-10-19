@@ -10,6 +10,9 @@ namespace edr {
 /* Parse selected Microsoft-Windows-Windows Defender/Operational events. */
 bool ParseDefenderXml(const std::wstring& xml, Event& event);
 
+/* XPath used by both the subscription and its parser contract tests. */
+const wchar_t* DefenderSubscriptionQuery();
+
 } // namespace edr
 
 #endif /* EDR_DEFENDER_PARSER_H */

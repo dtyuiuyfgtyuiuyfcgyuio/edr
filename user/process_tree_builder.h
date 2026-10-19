@@ -7,6 +7,7 @@
 #include <vector>
 
 namespace edr {
+struct Event;
 
 /*
  * process_tree_builder.h - Builds a process tree to enrich alert context.
@@ -39,6 +40,10 @@ public:
      * overwritten so the tree stays consistent across restarts. */
     void AddParentChild(uint32_t parentPid, uint32_t childPid,
                         const std::string& image);
+
+    /* Observe dispatch metadata; tampering events supply no parent evidence
+     * and must not replace established ancestry or invent a root process. */
+    void Observe(const Event& event);
 
     /* Build a JSON representation of the process tree rooted at |pid|,
      * descending at most |maxDepth| levels.  Returns an empty JSON

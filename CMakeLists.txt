@@ -1121,8 +1121,22 @@ if(BUILD_TESTING)
         target_compile_options(edr_defender_tests PRIVATE /W4 /utf-8 /EHsc)
         target_link_options(edr_defender_tests PRIVATE /NODEFAULTLIB:OLDNAMES.lib)
     endif()
-    target_link_libraries(edr_defender_tests PRIVATE bcrypt)
-    add_test(NAME edr_defender_tests COMMAND edr_defender_tests)
+    target_link_libraries(edr_defender_tests PRIVATE bcrypt wevtapi)
+    add_test(NAME edr_defender_tests COMMAND edr_defender_tests
+        "${CMAKE_CURRENT_SOURCE_DIR}/rules/rules.json")
+    add_executable(edr_sysmon_tamper_tests
+        tests/sysmon_tamper_tests.cpp user/sysmon_parser.cpp user/process_tree_builder.cpp
+        user/config.cpp user/event_bus.cpp user/rule_engine.cpp user/rule_lint.cpp)
+    target_include_directories(edr_sysmon_tamper_tests PRIVATE user common)
+    target_compile_definitions(edr_sysmon_tamper_tests PRIVATE
+        UNICODE _UNICODE _CRT_SECURE_NO_WARNINGS NOMINMAX)
+    if(MSVC)
+        target_compile_options(edr_sysmon_tamper_tests PRIVATE /W4 /utf-8 /EHsc)
+        target_link_options(edr_sysmon_tamper_tests PRIVATE /NODEFAULTLIB:OLDNAMES.lib)
+    endif()
+    target_link_libraries(edr_sysmon_tamper_tests PRIVATE bcrypt wevtapi)
+    add_test(NAME edr_sysmon_tamper_tests COMMAND edr_sysmon_tamper_tests
+        "${CMAKE_CURRENT_SOURCE_DIR}/rules/rules.json")
     add_executable(edr_net_etw_tests
         tests/net_etw_parser_tests.cpp
         user/collector_net_etw.cpp

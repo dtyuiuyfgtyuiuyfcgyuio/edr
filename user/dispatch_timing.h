@@ -38,15 +38,15 @@
  * observability and never torn).
  *
  * SLOTS: direct-indexed table with kDirectSlots = 64 entries covering
- * event types 0..63. The current EDR_EVT_* set spans 1..58
- * (common/edr_event.h, max EDR_EVT_INCIDENT_CORRELATED = 58), so every type
+ * event types 0..63. The current EDR_EVT_* set spans 1..59
+ * (common/edr_event.h, max EDR_EVT_PROCESS_TAMPERING = 59), so every type
  * defined today gets a dedicated slot and no LRU eviction is needed;
  * 64 leaves headroom for the next additions. Types >= 64 fold into an
  * "other" aggregate bucket instead of being dropped.
  *
  * HEALTH COUNTERS CHANNEL: health_heartbeat.cpp renders a component's
  * counters map in std::map (lexicographic) order and truncates after 64
- * keys ("counters_truncated" flag). With 58 event types x 4 keys the
+ * keys ("counters_truncated" flag). With 59 event types x 4 keys the
  * full table cannot fit, so AppendCounters() self-limits to the channel
  * budget: 6 summary keys (digit-prefixed so they sort before every
  * "dispatch.T.."/"dispatch.other.." key and are never truncated) plus

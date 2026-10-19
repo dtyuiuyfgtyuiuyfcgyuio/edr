@@ -147,6 +147,19 @@ static bool PutPipeName(Event& event, const DataMap& data) {
     return true;
 }
 
+std::wstring SysmonSubscriptionQuery(bool imageLoad, bool processAccess,
+                                    bool remoteThread, bool namedPipe) {
+    std::wstring query =
+        L"*[System[(EventID=1 or EventID=2 or EventID=3 or EventID=5 or EventID=6";
+    if (imageLoad) query += L" or EventID=7";
+    if (processAccess) query += L" or EventID=10";
+    if (remoteThread) query += L" or EventID=8";
+    if (namedPipe) query += L" or EventID=17 or EventID=18";
+    query += L" or EventID=11 or EventID=12 or EventID=13 or "
+             L"EventID=14 or EventID=22 or EventID=25)]]";
+    return query;
+}
+
 static bool MapEvent(unsigned int id, const DataMap& data, Event& event) {
     switch (id) {
     case 1:
@@ -197,6 +210,19 @@ static bool MapEvent(unsigned int id, const DataMap& data, Event& event) {
         if (!SetPid(event, data)) return false;
         PutActor(event, data);
         break;
+    case 25: {
+        event.type = EDR_EVT_PROCESS_TAMPERING;
+        if (!SetPid(event, data)) return false;
+        PutActor(event, data);
+        if (event.fields.find(field::kImage) == event.fields.end()) return false;
+        auto tamperingType = data.find(L"Type");
+        if (tamperingType == data.end() || tamperingType->second.empty())
+            return false;
+        event.fields[field::kProcessTamperingType] =
+            WideToUtf8(tamperingType->second.c_str());
+        Put(event, data, L"User", field::kUserId);
+        break;
+    }
     case 6:
         event.type = EDR_EVT_IMAGE_LOAD;
         Put(event, data, L"ImageLoaded", field::kImageLoaded);
@@ -356,7 +382,7 @@ bool ParseSysmonXml(const std::wstring& xml, Event& event) {
     if (id != 1 && id != 2 && id != 3 && id != 5 && id != 6 && id != 7 &&
         id != 8 && id != 10 &&
         id != 11 && id != 12 && id != 13 && id != 14 &&
-        id != 17 && id != 18 && id != 22) return false;
+        id != 17 && id != 18 && id != 22 && id != 25) return false;
 
     event = Event{};
     DataMap data = EventData(xml);

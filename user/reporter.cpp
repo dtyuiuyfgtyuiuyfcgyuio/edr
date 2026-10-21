@@ -193,6 +193,22 @@ uint32_t Reporter::NextBackoff(uint32_t current) {
     return next > 60000 ? 60000 : next;
 }
 
+namespace {
+
+uint64_t CurrentFiletime100ns() {
+    FILETIME now{};
+    GetSystemTimePreciseAsFileTime(&now);
+    return (static_cast<uint64_t>(now.dwHighDateTime) << 32) |
+           static_cast<uint64_t>(now.dwLowDateTime);
+}
+
+} // namespace
+
+Reporter::DeliveryStats Reporter::GetDeliveryStats() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_deliveryStats;
+}
+
 bool Reporter::Post(const std::string& body) {
     std::wstring url = Utf8ToWide(m_url);
 
@@ -273,6 +289,9 @@ void Reporter::WorkerLoop() {
                 backoff = 0;
             }
             item = *m_inFlight;
+            ++m_deliveryStats.attempts;
+            m_deliveryStats.inProgress = true;
+            m_deliveryStats.lastAttempt100ns = CurrentFiletime100ns();
         }
 
         bool posted = false;
@@ -282,6 +301,18 @@ void Reporter::WorkerLoop() {
             /* A transport exception is a failed POST; preserve the same
              * in-flight item for the next attempt. */
             posted = false;
+        }
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            m_deliveryStats.inProgress = false;
+            if (posted) {
+                ++m_deliveryStats.succeeded;
+                m_deliveryStats.consecutiveFailures = 0;
+                m_deliveryStats.lastSuccess100ns = CurrentFiletime100ns();
+            } else {
+                ++m_deliveryStats.failed;
+                ++m_deliveryStats.consecutiveFailures;
+            }
         }
         if (posted) {
             if (m_spool && !m_spool->Acknowledge(item.id)) {

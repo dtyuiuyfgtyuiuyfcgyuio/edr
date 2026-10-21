@@ -9,9 +9,10 @@ namespace edr {
 
 /* Keep the subscription contract reviewable and test it against every parser
  * ID. A parser-only event is otherwise invisible on the live collector path. */
-inline constexpr std::array<uint16_t, 21> kSecurityLogEventIds = {
-    1100, 1102, 1104, 4616, 4624, 4625, 4672, 4697, 4719, 4720, 4722,
-    4723, 4724, 4725, 4726, 4728, 4732, 4740, 4756, 4768, 4769
+inline constexpr std::array<uint16_t, 23> kSecurityLogEventIds = {
+    1100, 1102, 1104, 4616, 4624, 4625, 4672, 4697, 4698, 4702, 4719,
+    4720, 4722, 4723, 4724, 4725, 4726, 4728, 4732, 4740, 4756, 4768,
+    4769
 };
 
 inline const std::wstring& SecurityLogSubscriptionQuery() {

@@ -4684,7 +4684,7 @@
         "Privilege Escalation",
         "Defense Evasion"
       ],
-      "comments": "Token 权限提升 — SeDebugPrivilege 被非系统进程启用，可能用于窃取令牌或访问 LSASS。数据源: 安全日志 4672（特殊权限登录）或特权监控。",
+      "comments": "Token 权限使用 — 特权监控解析 Security 4673 的 SENSITIVE_USED 与 SeDebugPrivilege；4672 是登录会话权限分配（LOGON_ELEVATED），不证明进程启用或使用权限，不触发本规则。",
       "match": {
         "type": {
           "eq": "PRIVILEGE"
@@ -7530,7 +7530,7 @@
       "mitre_tactic": [
         "Command and Control"
       ],
-      "comments": "DoH abuse detector (doh_abuse.enable, off by default) flags processes resolving known DNS-over-HTTPS resolver endpoints, especially non-browser tools, repeated lookups, and multi-provider bootstrap bursts that bypass local DNS monitoring. 55+ alerted; 75+ malicious.",
+      "comments": "DoH abuse detector (doh_abuse.enable, off by default) scores queries to known DNS-over-HTTPS provider hostnames as investigation leads. Completed queries aggregate only within a reliable process instance and endpoint/source/full-image scope; unknown identity retains single-query evidence. Resolving a provider does not establish actual DoH use, monitoring bypass, or malicious execution. 55+ alerted; 75+ receives the detector's malicious score label.",
       "match": {
         "doh_abuse_score": {
           "regex": "^(?:5[5-9]|[6-9][0-9]|100)$"
@@ -10951,6 +10951,141 @@
           "image": {"regex": "\\S"},
           "process_tampering_type": {"regex": "\\S"}
         }
+    },
+    {
+      "id": "EDR-525",
+      "severity": "medium",
+      "action": "alert",
+      "condition": "all",
+      "mitre_tactic": ["Impact"],
+      "comments": "Defender Operational event 1123 reports that controlled folder access blocked a file modification. Preserve the affected path and process name as evidence; a policy block can affect legitimate applications and does not establish ransomware or malicious execution. The provider PID is not a response target.",
+      "match": {
+        "type": {"eq": "DEFENDER"},
+        "source": {"eq": "defender_log"},
+        "defender_event_id": {"eq": "1123"},
+        "operation_type": {"eq": "CFA_BLOCKED"},
+        "detection_path": {"regex": "\\S"},
+        "process_name": {"regex": "\\S"}
+      }
+    },
+    {
+      "id": "EDR-526",
+      "severity": "low",
+      "action": "log",
+      "condition": "all",
+      "mitre_tactic": ["Impact"],
+      "comments": "Defender Operational event 1124 is a controlled folder access audit observation. The operation was not blocked by this policy. Retain the original path and process name for policy tuning without requesting a response.",
+      "match": {
+        "type": {"eq": "DEFENDER"},
+        "source": {"eq": "defender_log"},
+        "defender_event_id": {"eq": "1124"},
+        "operation_type": {"eq": "CFA_AUDITED"},
+        "detection_path": {"regex": "\\S"},
+        "process_name": {"regex": "\\S"}
+      }
+    },
+    {
+      "id": "EDR-527",
+      "severity": "high",
+      "action": "alert",
+      "condition": "all",
+      "mitre_tactic": ["Impact"],
+      "comments": "Defender Operational event 1127 reports a controlled folder access sector write block. This is an attempted write blocked by policy, not evidence that a disk was modified or wiped. Preserve native context for investigation; no automatic termination or file operation is requested.",
+      "match": {
+        "type": {"eq": "DEFENDER"},
+        "source": {"eq": "defender_log"},
+        "defender_event_id": {"eq": "1127"},
+        "operation_type": {"eq": "CFA_SECTOR_WRITE_BLOCKED"},
+        "detection_path": {"regex": "\\S"},
+        "process_name": {"regex": "\\S"}
+      }
+    },
+    {
+      "id": "EDR-528",
+      "severity": "low",
+      "action": "log",
+      "condition": "all",
+      "mitre_tactic": ["Impact"],
+      "comments": "Defender Operational event 1128 is an audited controlled folder access sector write observation. Audit is not a policy block and does not establish successful disk damage. Keep the event separate from file write and sector write block events.",
+      "match": {
+        "type": {"eq": "DEFENDER"},
+        "source": {"eq": "defender_log"},
+        "defender_event_id": {"eq": "1128"},
+        "operation_type": {"eq": "CFA_SECTOR_WRITE_AUDITED"},
+        "detection_path": {"regex": "\\S"},
+        "process_name": {"regex": "\\S"}
+      }
+    },
+    {
+      "id": "EDR-529",
+      "severity": "low",
+      "action": "log",
+      "condition": "all",
+      "mitre_attack": ["T1562.002"],
+      "mitre_tactic": ["Defense Evasion"],
+      "comments": "Security 4719 records an audit policy change. Retain native category, subcategory, changes and subject evidence for investigation; routine policy deployment also generates this event. A single change is an observation, not proof that auditing was disabled or an attack occurred.",
+      "match": {
+        "type": {"eq": "AUDIT_LOG"},
+        "source": {"eq": "security_log"},
+        "security_event_id": {"eq": "4719"},
+        "audit_log_event_id": {"eq": "4719"},
+        "operation_type": {"eq": "AUDIT_POLICY_CHANGED"}
+      }
+    },
+    {
+      "id": "EDR-530",
+      "severity": "medium",
+      "action": "alert",
+      "condition": "all",
+      "comments": "Security 1104 reports that the Security log is full. Alert on audit availability so retention or capacity can be investigated. This event does not establish malicious log filling or prove which subsequent events were lost.",
+      "match": {
+        "type": {"eq": "AUDIT_LOG"},
+        "source": {"eq": "security_log"},
+        "security_event_id": {"eq": "1104"},
+        "audit_log_event_id": {"eq": "1104"},
+        "operation_type": {"eq": "SECURITY_LOG_FULL"}
+      }
+    },
+    {
+      "id": "EDR-531",
+      "severity": "low",
+      "action": "log",
+      "condition": "all",
+      "comments": "Sysmon 4 reports a service state transition. Keep the native state and available service/schema versions as sensor evidence. Startup or shutdown may be expected; the provider process is not an attacker or response target.",
+      "match": {
+        "type": {"eq": "AUDIT_LOG"},
+        "source": {"eq": "sysmon"},
+        "sysmon_event_id": {"eq": "4"},
+        "operation_type": {"eq": "SYSMON_SERVICE_STATE_CHANGED"}
+      }
+    },
+    {
+      "id": "EDR-532",
+      "severity": "low",
+      "action": "log",
+      "condition": "all",
+      "mitre_attack": ["T1562.001"],
+      "mitre_tactic": ["Defense Evasion"],
+      "comments": "Sysmon 16 reports a sensor configuration update. Preserve its configuration reference and file hash for comparison; the event alone does not establish a malicious change or identify the process that requested it.",
+      "match": {
+        "type": {"eq": "AUDIT_LOG"},
+        "source": {"eq": "sysmon"},
+        "sysmon_event_id": {"eq": "16"},
+        "operation_type": {"eq": "SYSMON_CONFIG_CHANGED"}
+      }
+    },
+    {
+      "id": "EDR-533",
+      "severity": "medium",
+      "action": "alert",
+      "condition": "all",
+      "comments": "Sysmon 255 reports an internal sensor error. Preserve the native ID and Description and alert for telemetry investigation. It may indicate resource or software problems; it does not prove deliberate tampering or quantify lost events.",
+      "match": {
+        "type": {"eq": "AUDIT_LOG"},
+        "source": {"eq": "sysmon"},
+        "sysmon_event_id": {"eq": "255"},
+        "operation_type": {"eq": "SYSMON_ERROR"}
+      }
     }
   ]
 }

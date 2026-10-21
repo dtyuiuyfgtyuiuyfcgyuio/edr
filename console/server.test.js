@@ -11,6 +11,31 @@ const { appendChainedRecord } = require('./audit_chain');
 
 const quietLogger = { log() {}, warn() {}, error() {} };
 
+// Test a native loopback HTTP server without Fetch's browser port denylist.
+// Windows listen(0) may assign a restricted browser port; no retry/rebind is
+// needed because node:http supports the server's actual assigned address.
+function localHttpRequest(url, { method = 'GET', headers, body } = {}) {
+    return new Promise((resolve, reject) => {
+        const request = http.request(url, { method, headers }, response => {
+            const chunks = [];
+            response.on('data', chunk => chunks.push(chunk));
+            response.on('error', reject);
+            response.on('end', () => {
+                try {
+                    const emptyBody = [204, 205, 304].includes(response.statusCode);
+                    resolve(new Response(emptyBody ? null : Buffer.concat(chunks), {
+                        status: response.statusCode,
+                        statusText: response.statusMessage,
+                        headers: response.headers,
+                    }));
+                } catch (error) { reject(error); }
+            });
+        });
+        request.on('error', reject);
+        request.end(body);
+    });
+}
+
 test('response binary frame authenticates exact payload bytes', () => {
     const key = Buffer.alloc(32, 0x5a);
     const payload = { version: 1, requestId: '12345678-1234-1234-1234-123456789abc' };
@@ -29,7 +54,7 @@ async function fixture(t, env = {}, options = {}) {
         fs.rmSync(dataDir, { recursive: true, force: true });
     });
     const base = `http://127.0.0.1:${runtime.server.address().port}`;
-    const send = (url, { key, body, ...options } = {}) => fetch(`${base}${url}`, {
+    const send = (url, { key, body, ...options } = {}) => localHttpRequest(`${base}${url}`, {
         ...options,
         headers: {
             ...(body === undefined ? {} : { 'content-type': 'application/json' }),
@@ -274,12 +299,12 @@ test('legacy ruleId records load as canonical rule and conflicting schemas fail'
         fs.rmSync(dataDir, { recursive: true, force: true });
     });
     const base = `http://127.0.0.1:${runtime.server.address().port}`;
-    const loaded = await (await fetch(`${base}/api/alerts`)).json();
+    const loaded = await (await localHttpRequest(`${base}/api/alerts`)).json();
     assert.equal(loaded.alerts[0].rule, 'EDR-OLD');
     assert.equal('ruleId' in loaded.alerts[0], false);
     assert.equal(loaded.total >= 1, true);
     const before = fs.readFileSync(path.join(dataDir, 'alerts.jsonl'), 'utf8');
-    const conflict = await fetch(`${base}/ingest`, {
+    const conflict = await localHttpRequest(`${base}/ingest`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ rule: 'NEW', ruleId: 'OLD', severity: 'high' }),
     });
@@ -388,7 +413,7 @@ test('alert triage is admin-only, exact, durable, and reflected in alert statist
     assert.equal((await runtime.send('/api/alerts/alert-does-not-exist/triage', {
         method: 'PATCH', key: 'admin-key', body: { status: 'resolved' },
     })).status, 404);
-    const duplicate = await fetch(`${runtime.base}/api/alerts/${created.caseId}/triage`, {
+    const duplicate = await localHttpRequest(`${runtime.base}/api/alerts/${created.caseId}/triage`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json', 'x-api-key': 'admin-key' },
         body: '{"status":"investigating","status":"resolved"}',
@@ -432,7 +457,7 @@ test('triage state and stable case identity survive a console restart', async t 
     const first = createRuntime({ dataDir, env, logger: quietLogger });
     await first.start(0, '127.0.0.1');
     const firstBase = `http://127.0.0.1:${first.server.address().port}`;
-    const ingest = await fetch(`${firstBase}/ingest`, {
+    const ingest = await localHttpRequest(`${firstBase}/ingest`, {
         method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': 'sensor-key' },
         body: JSON.stringify({
             id: 'restart-alert', rule: 'EDR-RESTART', severity: 'high',
@@ -440,7 +465,7 @@ test('triage state and stable case identity survive a console restart', async t 
         }),
     });
     const caseId = (await ingest.json()).alert.caseId;
-    await fetch(`${firstBase}/api/alerts/${caseId}/triage`, {
+    await localHttpRequest(`${firstBase}/api/alerts/${caseId}/triage`, {
         method: 'PATCH', headers: { 'content-type': 'application/json', 'x-api-key': 'admin-key' },
         body: JSON.stringify({ status: 'false_positive', note: 'Known administrator activity.' }),
     });
@@ -450,7 +475,7 @@ test('triage state and stable case identity survive a console restart', async t 
     await second.start(0, '127.0.0.1');
     t.after(() => new Promise(resolve => second.server.close(resolve)));
     const secondBase = `http://127.0.0.1:${second.server.address().port}`;
-    const alerts = await (await fetch(`${secondBase}/api/alerts`, { headers: { 'x-api-key': 'read-key' } })).json();
+    const alerts = await (await localHttpRequest(`${secondBase}/api/alerts`, { headers: { 'x-api-key': 'read-key' } })).json();
     assert.equal(alerts.alerts[0].caseId, caseId);
     assert.equal(alerts.alerts[0].triage.status, 'false_positive');
     assert.equal(alerts.alerts[0].triage.note, 'Known administrator activity.');
@@ -885,7 +910,7 @@ test('delete_file is forced dry-run, validates target sha256, and mirrors quaran
 
 test('response API rejects duplicate JSON keys', async t => {
     const runtime = await fixture(t, { EDR_ADMIN_API_KEY: 'admin-secret' });
-    const response = await fetch(`${runtime.base}/api/response/terminate`, {
+    const response = await localHttpRequest(`${runtime.base}/api/response/terminate`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-api-key': 'admin-secret' },
         body: '{"reason":"one","reason":"two","target":{"pid":10,"createTime100ns":"123"}}',
@@ -1176,7 +1201,7 @@ test('response audit API scans a bounded tail of a sparse large ledger', async t
         await new Promise(resolve => runtime.server.close(resolve));
         fs.rmSync(dataDir, { recursive: true, force: true });
     });
-    const response = await fetch(
+    const response = await localHttpRequest(
         `http://127.0.0.1:${runtime.server.address().port}/api/response/audit`,
         { headers: { 'x-api-key': 'admin-key' } });
     assert.equal(response.status, 200);
@@ -1292,7 +1317,7 @@ test('stats health aggregates endpoint state, risk, and critical endpoints', asy
         fs.rmSync(dataDir, { recursive: true, force: true });
     });
     const base = `http://127.0.0.1:${runtime.server.address().port}`;
-    const send = (url, { key, body, ...options } = {}) => fetch(`${base}${url}`, {
+    const send = (url, { key, body, ...options } = {}) => localHttpRequest(`${base}${url}`, {
         ...options,
         headers: {
             ...(body === undefined ? {} : { 'content-type': 'application/json' }),
@@ -1512,7 +1537,7 @@ test('batch triage updates many alerts and reports missing cases', async t => {
     assert.equal((await runtime.send('/api/alerts/triage/batch', {
         method: 'POST', key: 'admin-key', body: { caseIds: [first.caseId], status: 'bogus' },
     })).status, 400);
-    const duplicate = await fetch(`${runtime.base}/api/alerts/triage/batch`, {
+    const duplicate = await localHttpRequest(`${runtime.base}/api/alerts/triage/batch`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-api-key': 'admin-key' },
         body: '{"caseIds":["x"],"status":"resolved","status":"resolved"}',
@@ -1569,7 +1594,7 @@ test('health endpoint is unauthenticated and reports liveness', async t => {
         EDR_READ_API_KEY: 'read-key',
         EDR_ADMIN_API_KEY: 'admin-key',
     });
-    const res = await fetch(`${runtime.base}/api/health`);
+    const res = await localHttpRequest(`${runtime.base}/api/health`);
     assert.equal(res.status, 200);
     const body = await res.json();
     assert.equal(body.status, 'ok');
@@ -1601,7 +1626,7 @@ test('alert export supports assignee, priority, rule, and time filters', async t
     const res = await runtime.send('/api/export/alerts?assignee=carol', { key: 'read-key' });
     assert.equal(res.status, 200);
     const csv = await res.text();
-    /* fetch().text() decodes UTF-8 and consumes the BOM; the server emits
+    /* localHttpRequest().text() decodes UTF-8 and consumes the BOM; the server emits
      * \uFEFF for Excel compatibility, so accept both forms. */
     assert.ok(csv.startsWith('timestamp,rule') || csv.startsWith('\uFEFFtimestamp,rule'));
     assert.ok(csv.includes('EDR-EXPORT-A'));

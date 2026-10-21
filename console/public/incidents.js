@@ -38,6 +38,10 @@
     let incidentsTotal = 0;
     let incidentItems = [];
     let incidentDetailId = '';
+    let incidentListRequestId = 0;
+    let incidentSummaryRequestId = 0;
+    let incidentDetailRequestId = 0;
+    let incidentChainRequestId = 0;
 
     /* Windows FILETIME 100ns ticks -> JS epoch milliseconds. */
     function filetimeMs(ticks) {
@@ -81,16 +85,20 @@
             `<div class="stat"><div class="num">${summary.maxScore ?? 0}</div><div class="label">max score</div></div>`;
     }
     async function loadIncidentSummary() {
+        const requestId = ++incidentSummaryRequestId;
         const target = document.getElementById('incidentStats');
         if (!target) return;
         try {
             /* /api/incidents/summary rejects every query parameter — called bare. */
             const response = await request('/api/incidents/summary');
+            if (requestId !== incidentSummaryRequestId) return;
             if (response.status === 401) { setStatus('read auth required', false); throw new Error('read API key required'); }
             const data = await response.json().catch(() => ({}));
+            if (requestId !== incidentSummaryRequestId) return;
             if (!response.ok) throw new Error(apiErrorMessage(data, `HTTP ${response.status}`));
             target.innerHTML = incidentStatCards(data);
         } catch (error) {
+            if (requestId !== incidentSummaryRequestId) return;
             target.innerHTML = `<div class="stat"><div class="label">summary unavailable</div><div class="muted" style="text-transform:none">${escapeHtml(error.message)}</div></div>`;
         }
     }
@@ -155,6 +163,7 @@
         renderIncidentPageInfo();
     }
     async function loadIncidents() {
+        const requestId = ++incidentListRequestId;
         const body = document.getElementById('incidentList');
         const summary = document.getElementById('incidentSummary');
         if (!body) return;
@@ -162,8 +171,10 @@
         if (summary) summary.textContent = 'Loading...';
         try {
             const response = await request(incidentQueryUrl());
+            if (requestId !== incidentListRequestId) return;
             if (response.status === 401) { setStatus('read auth required', false); throw new Error('read API key required'); }
             const data = await response.json().catch(() => ({}));
+            if (requestId !== incidentListRequestId) return;
             if (!response.ok) throw new Error(apiErrorMessage(data, `HTTP ${response.status}`));
             incidentItems = Array.isArray(data.incidents) ? data.incidents : [];
             incidentsTotal = typeof data.total === 'number' ? data.total : incidentItems.length;
@@ -174,6 +185,7 @@
                 warnings.push(`ledger integrity: ${data.integrity.status}`);
             if (summary) summary.textContent = `${incidentsTotal} incident(s)${warnings.length ? ` — ${warnings.join('; ')}` : ''}`;
         } catch (error) {
+            if (requestId !== incidentListRequestId) return;
             incidentItems = [];
             incidentsTotal = 0;
             renderIncidentPageInfo();
@@ -261,23 +273,28 @@
         return header + rows;
     }
     async function loadIncidentChain(id) {
+        const requestId = ++incidentChainRequestId;
         const chain = document.getElementById('incidentChainBody');
         if (!chain) return;
         try {
             const response = await request(`/api/incidents/${encodeURIComponent(id)}/graph`);
+            if (requestId !== incidentChainRequestId || incidentDetailId !== id) return;
             if (response.status === 401) { setStatus('read auth required', false); throw new Error('read API key required'); }
             const data = await response.json().catch(() => ({}));
+            if (requestId !== incidentChainRequestId || incidentDetailId !== id) return;
             if (!response.ok) throw new Error(apiErrorMessage(data, `HTTP ${response.status}`));
-            if (incidentDetailId !== id) return; /* another row was opened meanwhile */
             chain.classList.remove('muted');
             chain.innerHTML = killChainHtml(data.graph);
         } catch (error) {
-            if (incidentDetailId === id) chain.innerHTML = `<span class="muted">Attack chain unavailable: ${escapeHtml(error.message)}</span>`;
+            if (requestId === incidentChainRequestId && incidentDetailId === id)
+                chain.innerHTML = `<span class="muted">Attack chain unavailable: ${escapeHtml(error.message)}</span>`;
         }
     }
     async function showIncidentDetail(index) {
         const incident = incidentItems[index];
         if (!incident || !incident.id) return;
+        const requestId = ++incidentDetailRequestId;
+        ++incidentChainRequestId;
         incidentDetailId = incident.id;
         const panel = document.getElementById('incidentDetail');
         const heading = document.getElementById('incidentDetailHeading');
@@ -290,18 +307,22 @@
         if (chain) { chain.classList.add('muted'); chain.textContent = 'Loading attack chain...'; }
         try {
             const response = await request(`/api/incidents/${encodeURIComponent(incident.id)}`);
+            if (requestId !== incidentDetailRequestId || incidentDetailId !== incident.id) return;
             if (response.status === 401) { setStatus('read auth required', false); throw new Error('read API key required'); }
             const data = await response.json().catch(() => ({}));
+            if (requestId !== incidentDetailRequestId || incidentDetailId !== incident.id) return;
             if (!response.ok) throw new Error(apiErrorMessage(data, `HTTP ${response.status}`));
-            if (incidentDetailId !== incident.id) return;
             body.classList.remove('muted');
             body.innerHTML = incidentDetailHtml(data.incident || incident);
             loadIncidentChain(incident.id);
         } catch (error) {
-            if (incidentDetailId === incident.id) body.innerHTML = `<span class="muted">Incident detail unavailable: ${escapeHtml(error.message)}</span>`;
+            if (requestId === incidentDetailRequestId && incidentDetailId === incident.id)
+                body.innerHTML = `<span class="muted">Incident detail unavailable: ${escapeHtml(error.message)}</span>`;
         }
     }
     function closeIncidentDetail() {
+        ++incidentDetailRequestId;
+        ++incidentChainRequestId;
         incidentDetailId = '';
         const panel = document.getElementById('incidentDetail');
         if (panel) panel.style.display = 'none';

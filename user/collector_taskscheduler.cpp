@@ -67,9 +67,11 @@ public:
             return false;
         }
 
+        const std::wstring subscriptionQuery =
+            BuildTaskSchedulerSubscriptionQuery();
         m_subscription = EvtSubscribe(nullptr, m_signalEvent,
             L"Microsoft-Windows-TaskScheduler/Operational",
-            L"*[System[(EventID=106 or EventID=140 or EventID=141)]]",
+            subscriptionQuery.c_str(),
             bookmark, nullptr,
             nullptr, subscriptionFlags);
         const DWORD subscribeError = m_subscription == nullptr

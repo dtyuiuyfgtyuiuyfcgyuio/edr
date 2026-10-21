@@ -16,6 +16,7 @@
 #include "rule_lint.h"
 
 #include <algorithm>
+#include <cmath>
 #include <fstream>
 #include <map>
 #include <regex>
@@ -91,25 +92,39 @@ bool CompileLintRegex(const std::string& pattern, std::regex* out,
 
 struct BandProbe {
     bool anyHit = false;
-    bool hitLeak = false; /* matched set intersects 50..54 */
-    int lowest = -1;      /* lowest matched value in 0..100 */
+    bool hitLeak = false; /* accepted set intersects 50..54 */
+    int lowest = -1;      /* lowest accepted value in 0..100 */
 };
 
-/* Feed "0".."100" to the regex and inspect the matched set. This is the
- * regression guard for the `[5-9][0-9]` ten's-digit class that silently
- * admitted 50..54. */
-BandProbe ProbeScoreBand(const std::regex& re) {
+/* RuleEngine ANDs all operators on a field: eq compares the full string,
+ * contains searches a substring, regex requires a search hit, and not_regex
+ * requires no search hit. Probe that combined accepted set. */
+BandProbe ProbeScoreBand(const std::regex* regex,
+                         const std::regex* notRegex,
+                         const std::string* equality,
+                         const std::string* contains) {
     BandProbe probe;
     for (int score = 0; score <= 100; ++score) {
         const std::string value = std::to_string(score);
-        /* Runtime rule predicates use regex_search (see RuleEngine::EvalPredicate),
-         * so probe the score domain with the same matching semantics. */
-        if (!std::regex_search(value, re)) continue;
+        if (equality != nullptr && value != *equality) continue;
+        if (contains != nullptr && value.find(*contains) == std::string::npos)
+            continue;
+        if (regex != nullptr && !std::regex_search(value, *regex)) continue;
+        if (notRegex != nullptr && std::regex_search(value, *notRegex))
+            continue;
         if (!probe.anyHit || score < probe.lowest) probe.lowest = score;
         probe.anyHit = true;
         if (score >= 50 && score <= 54) probe.hitLeak = true;
     }
     return probe;
+}
+
+bool IsScoreField(const std::string& field) {
+    static const std::string kSuffix = "_score";
+    return field == "score" ||
+           (field.size() >= kSuffix.size() &&
+            field.compare(field.size() - kSuffix.size(), kSuffix.size(),
+                          kSuffix) == 0);
 }
 
 /* A 50+ floor is only honoured when the author documented it in the rule's
@@ -268,6 +283,36 @@ bool LintRulesJson(const std::string& json, RuleLintReport* out,
                              "every event of that type");
                 }
 
+                std::regex compiledRegex;
+                std::regex compiledNotRegex;
+                bool hasRegex = false;
+                bool hasNotRegex = false;
+                bool regexError = false;
+                std::string equality;
+                std::string contains;
+                bool hasEquality = false;
+                bool hasContains = false;
+                if (const jsonlite::Value* eq = pred.find("eq")) {
+                    if (eq->type == jsonlite::Type::String) {
+                        equality = eq->str;
+                        hasEquality = true;
+                    } else if (eq->type == jsonlite::Type::Number &&
+                               std::isfinite(eq->number) &&
+                               std::floor(eq->number) == eq->number &&
+                               eq->number >= -9007199254740991.0 &&
+                               eq->number <= 9007199254740991.0) {
+                        equality = std::to_string(
+                            static_cast<long long>(eq->number));
+                        hasEquality = true;
+                    }
+                }
+                if (const jsonlite::Value* value = pred.find("contains")) {
+                    if (value->type == jsonlite::Type::String &&
+                        !value->str.empty()) {
+                        contains = value->str;
+                        hasContains = true;
+                    }
+                }
                 for (const char* op : {"regex", "not_regex"}) {
                     const jsonlite::Value* v = pred.find(op);
                     if (v == nullptr) continue;
@@ -276,21 +321,35 @@ bool LintRulesJson(const std::string& json, RuleLintReport* out,
                         AddIssue(out, "error", "bad_regex", ruleId,
                                  "'" + opName + "' on field '" + field +
                                      "' must be a non-empty string");
+                        regexError = true;
                         continue; /* one bad predicate must not abort the rule */
                     }
-                    std::regex re;
                     std::string regexErr;
-                    if (!CompileLintRegex(v->str, &re, &regexErr)) {
+                    std::regex& compiled = opName == "regex"
+                        ? compiledRegex : compiledNotRegex;
+                    if (!CompileLintRegex(v->str, &compiled, &regexErr)) {
                         AddIssue(out, "error", "bad_regex", ruleId,
                                  "'" + opName + "' on field '" + field +
                                      "' does not compile: " + regexErr);
+                        regexError = true;
                         continue;
                     }
-                    const BandProbe probe = ProbeScoreBand(re);
+                    if (opName == "regex") hasRegex = true;
+                    else hasNotRegex = true;
+                }
+                /* Non-score fields retain regex type/compile validation, but
+                 * the numeric score-domain policy does not apply to them. */
+                if (IsScoreField(field) && !regexError &&
+                    (hasRegex || hasNotRegex)) {
+                    const BandProbe probe = ProbeScoreBand(
+                        hasRegex ? &compiledRegex : nullptr,
+                        hasNotRegex ? &compiledNotRegex : nullptr,
+                        hasEquality ? &equality : nullptr,
+                        hasContains ? &contains : nullptr);
                     if (probe.hitLeak && !exempt50) {
                         AddIssue(out, "warning", "band_leak", ruleId,
-                                 "'" + opName + "' on field '" + field +
-                                     "' matches scores 50..54 (lowest matched " +
+                                 "regex predicates on field '" + field +
+                                     "' accept scores 50..54 (lowest accepted " +
                                      std::to_string(probe.lowest) +
                                      "); expected ^(?:5[5-9]|[6-9][0-9]|100)$ "
                                      "unless a documented 50+ floor is "

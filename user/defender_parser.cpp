@@ -19,6 +19,10 @@ bool IsAsrEvent(unsigned int id) {
     return id == 1121 || id == 1122 || id == 1129;
 }
 
+bool IsCfaEvent(unsigned int id) {
+    return id == 1123 || id == 1124 || id == 1127 || id == 1128;
+}
+
 void PutFirst(Event& event, const DataMap& data,
               std::initializer_list<const wchar_t*> sources,
               const char* target) {
@@ -31,7 +35,7 @@ void PutFirst(Event& event, const DataMap& data,
     }
 }
 
-void PutExecutionPid(Event& event, const std::wstring& xml, bool asrEvent) {
+void PutExecutionPid(Event& event, const std::wstring& xml, bool providerOnly) {
     size_t execution = xml.find(L"<Execution");
     if (execution == std::wstring::npos) return;
     size_t end = xml.find(L'>', execution);
@@ -39,7 +43,7 @@ void PutExecutionPid(Event& event, const std::wstring& xml, bool asrEvent) {
     std::wstring value = Attribute(xml, execution, end, L"ProcessID");
     uint64_t pid = 0;
     if (ParseUnsigned(value, std::numeric_limits<uint32_t>::max(), pid)) {
-        if (asrEvent) {
+        if (providerOnly) {
             event.fields[field::kDefenderProviderPid] = std::to_string(pid);
         } else {
             event.pid = static_cast<uint32_t>(pid);
@@ -70,7 +74,8 @@ void PutTimestamp(Event& event, const std::wstring& xml) {
 const wchar_t* DefenderSubscriptionQuery() {
     return L"*[System[(EventID=1116 or EventID=1117 or EventID=5001 or "
            L"EventID=5007 or EventID=1121 or EventID=1122 or "
-           L"EventID=1129)]]";
+           L"EventID=1129 or EventID=1123 or EventID=1124 or "
+           L"EventID=1127 or EventID=1128)]]";
 }
 
 bool ParseDefenderXml(const std::wstring& xml, Event& event) {
@@ -79,7 +84,7 @@ bool ParseDefenderXml(const std::wstring& xml, Event& event) {
     if (!ParseUnsigned(eventId, 65535, idValue)) return false;
     unsigned int id = static_cast<unsigned int>(idValue);
     if (id != 1116 && id != 1117 && id != 5001 && id != 5007 &&
-        !IsAsrEvent(id))
+        !IsAsrEvent(id) && !IsCfaEvent(id))
         return false;
 
     event = Event{};
@@ -111,6 +116,18 @@ bool ParseDefenderXml(const std::wstring& xml, Event& event) {
     case 1129:
         event.fields[field::kOperationType] = "ASR_WARN_BYPASSED";
         break;
+    case 1123:
+        event.fields[field::kOperationType] = "CFA_BLOCKED";
+        break;
+    case 1124:
+        event.fields[field::kOperationType] = "CFA_AUDITED";
+        break;
+    case 1127:
+        event.fields[field::kOperationType] = "CFA_SECTOR_WRITE_BLOCKED";
+        break;
+    case 1128:
+        event.fields[field::kOperationType] = "CFA_SECTOR_WRITE_AUDITED";
+        break;
     default:
         return false;
     }
@@ -138,12 +155,16 @@ bool ParseDefenderXml(const std::wstring& xml, Event& event) {
              field::kDefenderNewValue);
     if (IsAsrEvent(id)) {
         PutFirst(event, data, {L"ID"}, field::kAsrRuleId);
+    } else if (IsCfaEvent(id)) {
+        PutFirst(event, data, {L"ID"}, field::kCfaDetectionId);
+    }
+    if (IsAsrEvent(id) || IsCfaEvent(id)) {
         PutFirst(event, data, {L"User", L"Detection User", L"DetectionUser"},
                  field::kDetectionUser);
     }
 
     event.fields[field::kType] = EventTypeName(event.type);
-    PutExecutionPid(event, xml, IsAsrEvent(id));
+    PutExecutionPid(event, xml, IsAsrEvent(id) || IsCfaEvent(id));
     PutTimestamp(event, xml);
     return true;
 }

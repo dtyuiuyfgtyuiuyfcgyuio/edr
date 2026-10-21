@@ -178,9 +178,43 @@ std::string HealthHeartbeat::Snapshot(uint64_t uptimeSeconds) const {
             quote(reporter ? reporter->GetSpoolStatus() : "disabled");
         line += ",\"" + key + "_spool_errors\":" +
             (reporter ? std::to_string(reporter->SpoolErrorCount()) : "null");
+        const auto delivery = reporter ? reporter->GetDeliveryStats()
+                                       : Reporter::DeliveryStats{};
+        const std::pair<const char*, uint64_t> deliveryMetrics[] = {
+            {"attempts", delivery.attempts}, {"succeeded", delivery.succeeded},
+            {"failed", delivery.failed},
+            {"consecutive_failures", delivery.consecutiveFailures},
+        };
+        for (const auto& metric : deliveryMetrics)
+            line += ",\"" + key + "_" + metric.first + "\":" +
+                (reporter ? std::to_string(metric.second) : "null");
+        line += ",\"" + key + "_in_progress\":" +
+            (reporter ? (delivery.inProgress ? "true" : "false") : "null");
+        line += ",\"" + key + "_last_attempt_100ns\":" +
+            (reporter && delivery.lastAttempt100ns != 0
+                ? quote(std::to_string(delivery.lastAttempt100ns)) : "null");
+        line += ",\"" + key + "_last_success_100ns\":" +
+            (reporter && delivery.lastSuccess100ns != 0
+                ? quote(std::to_string(delivery.lastSuccess100ns)) : "null");
     };
     reporterFields("reporter", m_reporter);
     reporterFields("event_reporter", m_eventReporter);
+    const auto syslog = m_syslog ? m_syslog->GetStatsSnapshot() : SyslogForwarder::Stats{};
+    line += ",\"syslog_enabled\":" + std::string(m_syslog ? "true" : "false") +
+        ",\"syslog_state\":" + quote(m_syslog ? syslog.state : "disabled") +
+        ",\"syslog_running\":" + (m_syslog ? (syslog.running ? "true" : "false") : "null");
+    const std::pair<const char*, uint64_t> syslogMetrics[] = {
+        {"pending", syslog.pending}, {"in_flight", syslog.inflight},
+        {"capacity", syslog.capacity}, {"enqueued", syslog.enqueued},
+        {"sent", syslog.sent}, {"failed", syslog.failed},
+        {"dropped", syslog.dropped}, {"rejected", syslog.rejected},
+        {"start_failures", syslog.startFailures},
+    };
+    for (const auto& metric : syslogMetrics)
+        line += ",\"syslog_" + std::string(metric.first) + "\":" +
+            (m_syslog ? std::to_string(metric.second) : "null");
+    line += ",\"syslog_last_error\":" +
+        (m_syslog ? std::to_string(syslog.lastError) : "null");
     line += ",\"collectors\":" + quote(m_collectorsSummary);
     std::vector<HealthComponent> components;
     const char* diagnosticsState = "unsupported";

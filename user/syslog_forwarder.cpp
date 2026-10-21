@@ -7,10 +7,9 @@
  *   <165>1 2026-08-17T12:34:56.789Z workstation edr-agent 1234 EDR-001
  *   [edr@47400 severity="high"] {json payload}
  *
- * The UDP socket is created lazily per flush batch and is non-persistent:
- * a failed send never blocks or retries the datagram (UDP is
- * fire-and-forget), matching the "telemetry must never stall detection"
- * invariant.
+ * Resolve and initialize the UDP transport before reporting startup success.
+ * The worker sends each accepted datagram once. Failure is observable and
+ * never retries a datagram or blocks the detection thread on network I/O.
  */
 #include "syslog_forwarder.h"
 
@@ -33,6 +32,70 @@ namespace {
  * collector default is 8 KiB; stay under one UDP datagram limit. */
 constexpr size_t kMaxDatagram = 8192;
 constexpr uint8_t kDefaultFacility = 16; /* local0 */
+
+class WinsockTransport final : public SyslogForwarder::Transport {
+public:
+    ~WinsockTransport() override { Shutdown(); }
+
+    bool Initialize(const std::string& host, uint16_t port,
+                    int& error) noexcept override {
+        Shutdown();
+        WSADATA data{};
+        error = WSAStartup(MAKEWORD(2, 2), &data);
+        if (error != 0) return false;
+        m_started = true;
+        addrinfo hints{};
+        hints.ai_family = AF_INET;
+        hints.ai_socktype = SOCK_DGRAM;
+        hints.ai_protocol = IPPROTO_UDP;
+        addrinfo* addresses = nullptr;
+        char service[8]{};
+        std::snprintf(service, sizeof(service), "%u", static_cast<unsigned>(port));
+        error = getaddrinfo(host.c_str(), service, &hints, &addresses);
+        if (error != 0) { Shutdown(); return false; }
+        if (!addresses || addresses->ai_addrlen != sizeof(m_destination)) {
+            if (addresses) freeaddrinfo(addresses);
+            error = WSAEADDRNOTAVAIL;
+            Shutdown();
+            return false;
+        }
+        m_destination = *reinterpret_cast<const sockaddr_in*>(addresses->ai_addr);
+        freeaddrinfo(addresses);
+        m_socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+        if (m_socket == INVALID_SOCKET) {
+            error = WSAGetLastError(); Shutdown(); return false;
+        }
+        const DWORD timeout = 2000;
+        if (setsockopt(m_socket, SOL_SOCKET, SO_SNDTIMEO,
+                reinterpret_cast<const char*>(&timeout), sizeof(timeout)) != 0) {
+            error = WSAGetLastError(); Shutdown(); return false;
+        }
+        error = 0;
+        return true;
+    }
+
+    bool Send(const std::string& datagram, int& error) noexcept override {
+        const int sent = sendto(m_socket, datagram.data(),
+            static_cast<int>(datagram.size()), 0,
+            reinterpret_cast<const sockaddr*>(&m_destination), sizeof(m_destination));
+        error = sent == SOCKET_ERROR ? WSAGetLastError() : 0;
+        if (sent != static_cast<int>(datagram.size())) {
+            if (!error) error = WSAEMSGSIZE;
+            return false;
+        }
+        return true;
+    }
+
+    void Shutdown() noexcept override {
+        if (m_socket != INVALID_SOCKET) { closesocket(m_socket); m_socket = INVALID_SOCKET; }
+        if (m_started) { WSACleanup(); m_started = false; }
+    }
+
+private:
+    SOCKET m_socket = INVALID_SOCKET;
+    bool m_started = false;
+    sockaddr_in m_destination{};
+};
 
 std::string NowIso8601Utc() {
     using clock = std::chrono::system_clock;
@@ -77,10 +140,13 @@ std::string Truncate(const std::string& text, size_t maxBytes) {
 
 SyslogForwarder::SyslogForwarder(std::string host, uint16_t port,
                                  uint8_t facility, std::string hostname,
-                                 size_t cacheLimit)
+                                 size_t cacheLimit, std::unique_ptr<Transport> transport)
     : m_host(std::move(host)), m_port(port),
       m_facility(facility > 23 ? kDefaultFacility : facility),
-      m_hostname(std::move(hostname)), m_cacheLimit(cacheLimit) {}
+      m_hostname(std::move(hostname)), m_cacheLimit(cacheLimit),
+      m_transport(transport ? std::move(transport) : std::make_unique<WinsockTransport>()) {
+    m_stats.capacity = cacheLimit;
+}
 
 SyslogForwarder::~SyslogForwarder() {
     Stop();
@@ -123,11 +189,36 @@ std::string SyslogForwarder::BuildMessage(uint8_t facility, int severity,
 }
 
 bool SyslogForwarder::Start() {
-    if (m_host.empty() || m_port == 0) {
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        if (m_thread.joinable()) return m_stats.state == "running";
+        m_stats.state = "starting";
+        m_stats.lastError = 0;
+    }
+    int error = 0;
+    const bool configured = !m_host.empty() && m_host.find('\0') == std::string::npos && m_port != 0;
+    if (!configured || !m_transport->Initialize(m_host, m_port, error)) {
+        m_transport->Shutdown();
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_stats.state = "start_failed";
+        ++m_stats.startFailures;
+        m_stats.lastError = error ? error : WSAEINVAL;
         return false;
     }
-    m_stop.store(false);
-    m_thread = std::thread(&SyslogForwarder::WorkerLoop, this);
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_stop = false;
+    try {
+        m_thread = std::thread(&SyslogForwarder::WorkerLoop, this);
+    } catch (...) {
+        m_stop = true;
+        m_transport->Shutdown();
+        m_stats.state = "start_failed";
+        ++m_stats.startFailures;
+        m_stats.lastError = WSA_NOT_ENOUGH_MEMORY;
+        return false;
+    }
+    m_stats.state = "running";
+    m_stats.running = true;
     return true;
 }
 
@@ -137,15 +228,19 @@ void SyslogForwarder::Stop() {
         if (!m_thread.joinable()) {
             return;
         }
-        m_stop.store(true);
+        m_stop = true;
+        m_stats.state = "stopping";
     }
     m_cv.notify_all();
     if (m_thread.joinable()) {
         m_thread.join();
     }
+    m_transport->Shutdown();
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_stats.state = "stopped";
 }
 
-void SyslogForwarder::Enqueue(const std::string& severity,
+bool SyslogForwarder::Enqueue(const std::string& severity,
                               const std::string& ruleId,
                               const std::string& message) {
     std::string line = BuildMessage(m_facility, SeverityToSyslog(severity),
@@ -153,91 +248,59 @@ void SyslogForwarder::Enqueue(const std::string& severity,
                                     message);
     {
         std::lock_guard<std::mutex> lock(m_mutex);
-        if (m_queue.size() >= m_cacheLimit) {
-            m_queue.pop_front();
-            m_dropped.fetch_add(1);
-        }
-        m_queue.push_back(std::move(line));
-    }
-    m_cv.notify_one();
-}
-
-bool SyslogForwarder::Send(const std::string& datagram) {
-    SOCKET sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if (sock == INVALID_SOCKET) {
-        return false;
-    }
-    /* Bound the send so a stuck collector cannot stall the worker. */
-    DWORD sendTimeout = 2000;
-    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO,
-               (const char*)&sendTimeout, sizeof(sendTimeout));
-
-    sockaddr_in dest = {};
-    dest.sin_family = AF_INET;
-    dest.sin_port = htons(m_port);
-    if (inet_pton(AF_INET, m_host.c_str(), &dest.sin_addr) != 1) {
-        /* Not a literal IPv4 address: resolve the host name. */
-        struct addrinfo hints = {};
-        hints.ai_family = AF_INET;
-        hints.ai_socktype = SOCK_DGRAM;
-        hints.ai_protocol = IPPROTO_UDP;
-        struct addrinfo* result = nullptr;
-        if (getaddrinfo(m_host.c_str(), nullptr, &hints, &result) == 0 &&
-            result != nullptr) {
-            for (struct addrinfo* ai = result; ai != nullptr; ai = ai->ai_next) {
-                if (ai->ai_family == AF_INET) {
-                    dest.sin_addr =
-                        reinterpret_cast<sockaddr_in*>(ai->ai_addr)->sin_addr;
-                    break;
-                }
-            }
-            freeaddrinfo(result);
-        }
-        if (dest.sin_addr.s_addr == INADDR_NONE ||
-            dest.sin_addr.s_addr == 0) {
-            closesocket(sock);
+        if (m_stop || m_stats.state != "running" || m_cacheLimit == 0) {
+            ++m_stats.rejected;
             return false;
         }
+        if (m_queue.size() + m_stats.inflight >= m_cacheLimit) {
+            if (m_queue.empty()) {
+                ++m_stats.rejected;
+                return false;
+            }
+            m_queue.pop_front();
+            ++m_stats.dropped;
+        }
+        m_queue.push_back(std::move(line));
+        ++m_stats.enqueued;
     }
+    m_cv.notify_one();
+    return true;
+}
 
-    int sent = sendto(sock, datagram.data(),
-                      static_cast<int>(datagram.size()), 0,
-                      (const sockaddr*)&dest, sizeof(dest));
-    closesocket(sock);
-    return sent == static_cast<int>(datagram.size());
+SyslogForwarder::Stats SyslogForwarder::GetStatsSnapshot() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    Stats stats = m_stats;
+    stats.pending = m_queue.size();
+    return stats;
 }
 
 void SyslogForwarder::WorkerLoop() {
-    WSADATA wsaData = {};
-    bool wsaStarted = WSAStartup(MAKEWORD(2, 2), &wsaData) == 0;
-    if (!wsaStarted) {
-        std::fprintf(stderr, "[edr] syslog: WSAStartup failed; forwarder idle\n");
-    }
-
     for (;;) {
         std::string item;
         {
             std::unique_lock<std::mutex> lock(m_mutex);
             m_cv.wait(lock, [this] {
-                return m_stop.load() || !m_queue.empty();
+                return m_stop || !m_queue.empty();
             });
-            if (m_stop.load() && m_queue.empty()) {
+            if (m_stop && m_queue.empty()) {
+                m_stats.running = false;
                 break;
             }
             item = std::move(m_queue.front());
             m_queue.pop_front();
+            m_stats.inflight = 1;
         }
-        if (!wsaStarted) continue;
-        if (Send(item)) {
-            m_sent.fetch_add(1);
-        } else {
-            m_failed.fetch_add(1);
+        int error = 0;
+        const bool sent = m_transport->Send(item, error);
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            m_stats.inflight = 0;
+            if (sent) ++m_stats.sent;
+            else ++m_stats.failed;
+            m_stats.lastError = sent ? 0 : error;
         }
     }
 
-    if (wsaStarted) {
-        WSACleanup();
-    }
 }
 
 } // namespace edr

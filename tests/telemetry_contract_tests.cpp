@@ -80,7 +80,8 @@ void TestSecuritySubscriptionMatchesEveryParserId() {
         edr::Event event;
         const auto xml = L"<Event><System><EventID>" + std::to_wstring(id) +
             L"</EventID><TimeCreated SystemTime='2026-10-05T00:00:00.0000000Z'/>"
-            L"</System><EventData/></Event>";
+            L"</System><EventData><Data Name='TaskName'>\\EDR-Contract</Data>"
+            L"</EventData></Event>";
         const bool supported = std::find(edr::kSecurityLogEventIds.begin(),
             edr::kSecurityLogEventIds.end(), id) != edr::kSecurityLogEventIds.end();
         TC_CHECK(edr::ParseSecurityLogXml(xml, event) == supported);

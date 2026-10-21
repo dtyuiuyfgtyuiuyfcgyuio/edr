@@ -150,18 +150,40 @@ static bool PutPipeName(Event& event, const DataMap& data) {
 std::wstring SysmonSubscriptionQuery(bool imageLoad, bool processAccess,
                                     bool remoteThread, bool namedPipe) {
     std::wstring query =
-        L"*[System[(EventID=1 or EventID=2 or EventID=3 or EventID=5 or EventID=6";
+        L"*[System[(EventID=1 or EventID=2 or EventID=3 or EventID=4 or EventID=5 or EventID=6";
     if (imageLoad) query += L" or EventID=7";
     if (processAccess) query += L" or EventID=10";
     if (remoteThread) query += L" or EventID=8";
     if (namedPipe) query += L" or EventID=17 or EventID=18";
     query += L" or EventID=11 or EventID=12 or EventID=13 or "
-             L"EventID=14 or EventID=22 or EventID=25)]]";
+             L"EventID=14 or EventID=16 or EventID=22 or EventID=23 or "
+             L"EventID=25 or EventID=26 or EventID=255)]]";
     return query;
 }
 
 static bool MapEvent(unsigned int id, const DataMap& data, Event& event) {
     switch (id) {
+    case 4:
+        event.type = EDR_EVT_AUDIT_LOG;
+        event.fields[field::kOperationType] =
+            "SYSMON_SERVICE_STATE_CHANGED";
+        Put(event, data, L"State", field::kSysmonServiceState);
+        Put(event, data, L"Version", field::kSysmonServiceVersion);
+        Put(event, data, L"SchemaVersion", field::kSysmonSchemaVersion);
+        break;
+    case 16:
+        event.type = EDR_EVT_AUDIT_LOG;
+        event.fields[field::kOperationType] = "SYSMON_CONFIG_CHANGED";
+        Put(event, data, L"Configuration", field::kSysmonConfiguration);
+        Put(event, data, L"ConfigurationFileHash",
+            field::kSysmonConfigurationFileHash);
+        break;
+    case 255:
+        event.type = EDR_EVT_AUDIT_LOG;
+        event.fields[field::kOperationType] = "SYSMON_ERROR";
+        Put(event, data, L"ID", field::kSysmonErrorId);
+        Put(event, data, L"Description", field::kSysmonErrorDescription);
+        break;
     case 1:
         event.type = EDR_EVT_PROCESS_START;
         if (!SetPid(event, data)) return false;
@@ -209,6 +231,21 @@ static bool MapEvent(unsigned int id, const DataMap& data, Event& event) {
         event.type = EDR_EVT_PROCESS_STOP;
         if (!SetPid(event, data)) return false;
         PutActor(event, data);
+        break;
+    case 23:
+    case 26:
+        event.type = EDR_EVT_FILE_DELETE;
+        if (!SetPid(event, data)) return false;
+        PutActor(event, data);
+        Put(event, data, L"TargetFilename", field::kFilePath);
+        Put(event, data, L"TargetFilename", field::kTargetPath);
+        if (event.fields.find(field::kImage) == event.fields.end() ||
+            event.fields.find(field::kFilePath) == event.fields.end()) return false;
+        Put(event, data, L"User", field::kUserId);
+        Put(event, data, L"Hashes", field::kHashes);
+        Put(event, data, L"IsExecutable", field::kSysmonFileDeleteIsExecutable);
+        if (id == 23) Put(event, data, L"Archived", field::kSysmonFileDeleteArchived);
+        event.fields[field::kOperationType] = "FILE_DELETE";
         break;
     case 25: {
         event.type = EDR_EVT_PROCESS_TAMPERING;
@@ -371,7 +408,9 @@ static bool MapEvent(unsigned int id, const DataMap& data, Event& event) {
     default:
         return false;
     }
-    SetIdentity(event, data);
+    // These are provider state/configuration records, not behavior processes.
+    // Ignore similarly named raw EventData fields for process identity.
+    if (id != 4 && id != 16 && id != 255) SetIdentity(event, data);
     return true;
 }
 
@@ -379,10 +418,12 @@ bool ParseSysmonXml(const std::wstring& xml, Event& event) {
     uint64_t idValue = 0;
     if (!ParseUnsigned(ElementText(xml, L"<EventID"), 65535, idValue)) return false;
     unsigned int id = static_cast<unsigned int>(idValue);
-    if (id != 1 && id != 2 && id != 3 && id != 5 && id != 6 && id != 7 &&
+    if (id != 1 && id != 2 && id != 3 && id != 4 && id != 5 && id != 6 &&
+        id != 7 &&
         id != 8 && id != 10 &&
         id != 11 && id != 12 && id != 13 && id != 14 &&
-        id != 17 && id != 18 && id != 22 && id != 25) return false;
+        id != 16 && id != 17 && id != 18 && id != 22 && id != 23 &&
+        id != 25 && id != 26 && id != 255) return false;
 
     event = Event{};
     DataMap data = EventData(xml);

@@ -6,9 +6,7 @@
 #include <windows.h>
 
 #include <algorithm>
-#include <cerrno>
 #include <cctype>
-#include <cstdlib>
 
 namespace edr {
 namespace {
@@ -32,18 +30,59 @@ std::string BaseName(const std::string& value) {
                                                  : value.substr(slash + 1));
 }
 
-bool ContainsI(const std::string& haystack, const char* needle) {
-    const std::string h = LowerAscii(haystack);
-    const std::string n = LowerAscii(needle);
-    return h.find(n) != std::string::npos;
-}
-
-uint64_t EventTime(const Event& event) {
-    if (event.ts100ns != 0) return event.ts100ns;
+uint64_t WallTime100ns() {
     FILETIME now = {};
     GetSystemTimePreciseAsFileTime(&now);
     return (static_cast<uint64_t>(now.dwHighDateTime) << 32) |
            now.dwLowDateTime;
+}
+
+bool Token(const std::string& value, size_t maximum) {
+    if (value.empty() || value.size() > maximum) return false;
+    for (unsigned char c : value) if (c < 0x21 || c > 0x7e) return false;
+    return true;
+}
+
+// Same strong-identity and length-encoded scope convention as DoH/LOLBIN.
+bool AggregationKey(const Event& event, std::string& key) {
+    if (!event.pid) return false;
+    std::string source = event.source;
+    const auto fieldSource = event.fields.find(field::kSource);
+    if (fieldSource != event.fields.end()) {
+        if (!source.empty() && source != fieldSource->second) return false;
+        source = fieldSource->second;
+    }
+    if (!Token(source, 64)) return false;
+    std::string endpoint;
+    const auto endpointField = event.fields.find(field::kEndpointId);
+    if (endpointField != event.fields.end()) {
+        endpoint = endpointField->second;
+        if (!Token(endpoint, 128)) return false;
+    }
+    std::string identity;
+    if (event.processStartTime100ns) {
+        identity = "start:" + std::to_string(event.processStartTime100ns);
+    } else {
+        std::string guid = event.processIdentity;
+        if (guid.size() == 38 && guid.front() == '{' && guid.back() == '}')
+            guid = guid.substr(1, 36);
+        if (guid.size() != 36) return false;
+        bool nonzero = false;
+        for (size_t i = 0; i < guid.size(); ++i) {
+            if (i == 8 || i == 13 || i == 18 || i == 23) {
+                if (guid[i] != '-') return false;
+            } else {
+                if (!std::isxdigit(static_cast<unsigned char>(guid[i]))) return false;
+                nonzero = nonzero || guid[i] != '0';
+            }
+        }
+        if (!nonzero) return false;
+        identity = "guid:" + LowerAscii(guid);
+    }
+    key.clear();
+    for (const auto& part : {endpoint, source, std::to_string(event.pid), identity})
+        key += std::to_string(part.size()) + ":" + part + "|";
+    return true;
 }
 
 std::string Verdict(uint32_t score) {
@@ -68,14 +107,6 @@ bool PrivilegeEscalationDetector::Inspects(uint16_t type) {
            type == EDR_EVT_HANDLE_DUPLICATE ||
            type == EDR_EVT_IMAGE_LOAD ||
            type == EDR_EVT_PRIVILEGE;
-}
-
-bool PrivilegeEscalationDetector::IsLocalSystemService(
-        const std::string& account) {
-    const std::string lower = LowerAscii(account);
-    return lower == "localsystem" ||
-           lower.find("nt authority\\system") != std::string::npos ||
-           lower == ".\\system";
 }
 
 bool PrivilegeEscalationDetector::IsSuspiciousServicePath(
@@ -103,20 +134,37 @@ bool PrivilegeEscalationDetector::IsSuspiciousServicePath(
 
 bool PrivilegeEscalationDetector::IsSuspiciousPrivilege(
         const std::string& privileges) {
-    /* SeDebugPrivilege is the most suspicious — enables process access */
-    return ContainsI(privileges, "SeDebugPrivilege") ||
-           ContainsI(privileges, "SeTcbPrivilege") ||
-           ContainsI(privileges, "SeAssignPrimaryTokenPrivilege") ||
-           ContainsI(privileges, "SeImpersonatePrivilege");
+    const std::string lower = LowerAscii(privileges);
+    size_t start = 0;
+    while (start < lower.size()) {
+        const size_t end = lower.find_first_of(" \t\r\n,;", start);
+        const auto token = lower.substr(start, end == std::string::npos
+            ? std::string::npos : end - start);
+        if (token == "sedebugprivilege" || token == "setcbprivilege" ||
+            token == "seassignprimarytokenprivilege" || token == "seimpersonateprivilege")
+            return true;
+        if (end == std::string::npos) break;
+        start = end + 1;
+    }
+    return false;
 }
 
 bool PrivilegeEscalationDetector::HasDuplicateHandleAccess(
         const std::string& accessMask) {
     if (accessMask.empty()) return false;
-    errno = 0;
-    char* end = nullptr;
-    const unsigned long mask = std::strtoul(accessMask.c_str(), &end, 16);
-    if (errno != 0 || end == accessMask.c_str()) return false;
+    const size_t start = accessMask.rfind("0x", 0) == 0 ||
+                         accessMask.rfind("0X", 0) == 0 ? 2 : 0;
+    if (accessMask.size() <= start || accessMask.size() - start > 8) return false;
+    uint32_t mask = 0;
+    for (size_t i = start; i < accessMask.size(); ++i) {
+        const unsigned char c = static_cast<unsigned char>(accessMask[i]);
+        unsigned digit = 0;
+        if (c >= '0' && c <= '9') digit = c - '0';
+        else if (c >= 'a' && c <= 'f') digit = c - 'a' + 10;
+        else if (c >= 'A' && c <= 'F') digit = c - 'A' + 10;
+        else return false;
+        mask = (mask << 4) | digit;
+    }
     /* PROCESS_DUP_HANDLE (0x0040) */
     return (mask & 0x0040) != 0;
 }
@@ -137,11 +185,22 @@ bool PrivilegeEscalationDetector::IsElevatedImage(const std::string& image) {
 void PrivilegeEscalationDetector::PurgeExpired(uint64_t now100ns) {
     for (auto it = m_procs.begin(); it != m_procs.end();) {
         if (now100ns >= it->second.lastSeen100ns &&
-            now100ns - it->second.lastSeen100ns > m_window100ns) {
+            now100ns - it->second.lastSeen100ns >= m_window100ns) {
             it = m_procs.erase(it);
         } else {
             ++it;
         }
+    }
+}
+
+void PrivilegeEscalationDetector::ExpireSignals(ProcState& state,
+                                                uint64_t now100ns) const {
+    const std::array<bool*, 5> flags{{&state.sawServiceInstall,
+        &state.sawTokenManipulation, &state.sawPrivilegedChild,
+        &state.sawDllSideload, &state.sawSuspiciousPrivilege}};
+    for (size_t i = 0; i < flags.size(); ++i) {
+        if (*flags[i] && now100ns >= state.signalTimes[i] &&
+            now100ns - state.signalTimes[i] >= m_window100ns) *flags[i] = false;
     }
 }
 
@@ -218,76 +277,79 @@ void PrivilegeEscalationDetector::WriteState(Event& event,
 }
 
 void PrivilegeEscalationDetector::Enrich(Event& event) {
-    if (!m_enabled) return;
-    const uint64_t now = EventTime(event);
-    PurgeExpired(now);
-
+    if (!m_enabled || !Inspects(event.type) ||
+        event.disposition != EventDisposition::ReportAndEvaluate) return;
+    const uint64_t now = event.ts100ns;
+    const uint64_t wall = WallTime100ns();
+    if (!now || (now > wall && now - wall > 300 * kFiletimeTicksPerSecond) ||
+        event.processStartTime100ns > now) return;
+    size_t signal = 0;
     if (event.type == EDR_EVT_SERVICE_INSTALL) {
         const std::string imagePath =
             FieldValue(event, field::kServiceImagePath);
-        const std::string serviceName =
-            FieldValue(event, field::kServiceName);
         if (!IsSuspiciousServicePath(imagePath)) return;
-        ProcState& state = m_procs[event.pid];
-        state.sawServiceInstall = true;
-        state.detail = "suspicious service: " + serviceName;
-        state.lastSeen100ns = now;
-        WriteState(event, state);
-        return;
-    }
-
-    if (event.type == EDR_EVT_PROCESS_ACCESS) {
-        const std::string mask = FieldValue(event, field::kAccessMask);
+        signal = 0;
+    } else if (event.type == EDR_EVT_PROCESS_ACCESS) {
+        // Sysmon 10's native GrantedAccess is normalized by its parser.
+        const bool sysmonAccess = event.source == "sysmon" &&
+            FieldValue(event, field::kSysmonEventId) == "10";
+        const std::string mask = FieldValue(event,
+            sysmonAccess ? field::kGrantedAccess : field::kAccessMask);
         const std::string targetImage =
             FieldValue(event, field::kTargetImage);
         if (!HasDuplicateHandleAccess(mask) || !IsElevatedImage(targetImage))
             return;
-        ProcState& state = m_procs[event.pid];
-        state.sawTokenManipulation = true;
-        state.detail = "duplicate handle to " + BaseName(targetImage);
-        state.lastSeen100ns = now;
-        WriteState(event, state);
-        return;
-    }
-
-    if (event.type == EDR_EVT_HANDLE_DUPLICATE) {
+        signal = 1;
+    } else if (event.type == EDR_EVT_HANDLE_DUPLICATE) {
         const std::string targetImage =
             FieldValue(event, field::kTargetImage);
         if (!IsElevatedImage(targetImage)) return;
-        ProcState& state = m_procs[event.pid];
-        state.sawTokenManipulation = true;
-        state.detail = "handle duplicated from " + BaseName(targetImage);
-        state.lastSeen100ns = now;
-        WriteState(event, state);
-        return;
-    }
-
-    if (event.type == EDR_EVT_PRIVILEGE) {
-        const std::string privileges = FieldValue(event, field::kPrivileges);
+        signal = 1;
+    } else if (event.type == EDR_EVT_PRIVILEGE) {
+        const std::string privileges = FieldValue(event,
+            event.source == "security_log" ? field::kPrivilegeList : field::kPrivileges);
         if (!IsSuspiciousPrivilege(privileges)) return;
-        ProcState& state = m_procs[event.pid];
-        state.sawSuspiciousPrivilege = true;
-        state.detail = "suspicious privilege acquired";
-        state.lastSeen100ns = now;
-        WriteState(event, state);
-        return;
-    }
-
-    if (event.type == EDR_EVT_IMAGE_LOAD) {
-        const std::string dllPath = FieldValue(event, field::kImageLoaded);
-        const std::string targetImage =
-            FieldValue(event, field::kTargetImage);
-        if (!IsElevatedImage(targetImage)) return;
-        const std::string lower = LowerAscii(dllPath);
+        signal = 4;
+    } else if (event.type == EDR_EVT_IMAGE_LOAD) {
+        const bool sysmonImage = event.source == "sysmon" &&
+            FieldValue(event, field::kSysmonEventId) == "7";
+        const std::string dllPath = FieldValue(event,
+            sysmonImage ? field::kTargetImage : field::kImageLoaded);
+        const std::string host = FieldValue(event, field::kImage);
+        if (dllPath.empty() || !IsElevatedImage(host)) return;
+        std::string lower = LowerAscii(dllPath);
+        std::replace(lower.begin(), lower.end(), '/', '\\');
         if (lower.find("\\system32\\") != std::string::npos) return;
         if (lower.find("\\syswow64\\") != std::string::npos) return;
-        ProcState& state = m_procs[event.pid];
-        state.sawDllSideload = true;
-        state.detail = "DLL sideload into " + BaseName(targetImage);
-        state.lastSeen100ns = now;
-        WriteState(event, state);
+        signal = 3;
+    } else {
         return;
     }
+
+    std::string key;
+    ProcState singleEvent;
+    ProcState* state = &singleEvent;
+    if (m_window100ns != 0 && AggregationKey(event, key)) {
+        const auto prior = m_procs.find(key);
+        if (prior != m_procs.end() && now < prior->second.lastSeen100ns) return;
+        PurgeExpired(now);
+        if (m_procs.find(key) == m_procs.end() && m_procs.size() >= m_stateCapacity) {
+            const auto oldest = std::min_element(m_procs.begin(), m_procs.end(),
+                [](const auto& a, const auto& b) {
+                    return a.second.lastSeen100ns < b.second.lastSeen100ns;
+                });
+            m_procs.erase(oldest);
+        }
+        state = &m_procs[key];
+        ExpireSignals(*state, now);
+    }
+    const std::array<bool*, 5> flags{{&state->sawServiceInstall,
+        &state->sawTokenManipulation, &state->sawPrivilegedChild,
+        &state->sawDllSideload, &state->sawSuspiciousPrivilege}};
+    *flags[signal] = true;
+    state->signalTimes[signal] = now;
+    state->lastSeen100ns = now;
+    WriteState(event, *state);
 }
 
 } // namespace edr

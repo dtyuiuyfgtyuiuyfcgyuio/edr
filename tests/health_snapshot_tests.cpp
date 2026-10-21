@@ -1,6 +1,9 @@
 #include "health_snapshot_tests.h"
 
 #include <cstdio>
+#include <chrono>
+#include <condition_variable>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -9,6 +12,7 @@
 #include "health_heartbeat.h"
 #include "json_lite.h"
 #include "reporter.h"
+#include "syslog_forwarder.h"
 
 namespace {
 
@@ -300,6 +304,102 @@ void TestReporterSpoolFailuresStayPerReporter() {
     HS_CHECK(sample.find("event_reporter_spool_errors")->asNumber() == 0);
 }
 
+void TestSyslogHealthDistinguishesDisabledAndFailed() {
+    edr::HealthHeartbeat disabled(1, nullptr, nullptr, "", nullptr, nullptr);
+    auto sample = jsonlite::parse(disabled.Snapshot());
+    HS_CHECK(sample.find("syslog_enabled") != nullptr);
+    HS_CHECK(!sample.find("syslog_enabled")->asBool());
+    HS_CHECK(sample.find("syslog_state")->asString() == "disabled");
+    for (const char* key : {"syslog_pending", "syslog_in_flight", "syslog_capacity",
+         "syslog_enqueued", "syslog_sent", "syslog_failed", "syslog_dropped",
+         "syslog_rejected", "syslog_start_failures", "syslog_last_error"}) {
+        HS_CHECK(sample.find(key) != nullptr);
+        HS_CHECK(sample.find(key)->type == jsonlite::Type::Null);
+    }
+    edr::SyslogForwarder failed("", 0, 16, "test");
+    HS_CHECK(!failed.Start());
+    failed.Enqueue("high", "EDR-001", "rejected");
+    edr::HealthHeartbeat heartbeat(1, nullptr, &failed, "", nullptr, nullptr);
+    sample = jsonlite::parse(heartbeat.Snapshot());
+    HS_CHECK(sample.find("syslog_enabled")->asBool());
+    HS_CHECK(sample.find("syslog_state")->asString() == "start_failed");
+    HS_CHECK(!sample.find("syslog_running")->asBool());
+    HS_CHECK(sample.find("syslog_start_failures")->asNumber() == 1);
+    HS_CHECK(sample.find("syslog_rejected")->asNumber() == 1);
+    HS_CHECK(sample.find("syslog_sent")->asNumber() == 0);
+    HS_CHECK(sample.find("syslog_last_error")->asNumber() != 0);
+}
+
+void TestReporterDeliveryResultsReachHeartbeatIndependently() {
+    edr::HealthHeartbeat disabled(1, nullptr, nullptr, "");
+    const auto empty = jsonlite::parse(disabled.Snapshot());
+    for (const char* prefix : {"reporter", "event_reporter"}) {
+        for (const char* suffix : {"attempts", "succeeded", "failed",
+             "consecutive_failures", "in_progress", "last_attempt_100ns",
+             "last_success_100ns"}) {
+            const auto* value = empty.find(std::string(prefix) + "_" + suffix);
+            HS_CHECK(value != nullptr);
+            HS_CHECK(value->type == jsonlite::Type::Null);
+        }
+    }
+
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool attempted = false;
+    edr::Reporter failing("", "", 4, [&](const std::string&) {
+        std::lock_guard<std::mutex> lock(mutex);
+        attempted = true;
+        cv.notify_all();
+        return false;
+    });
+    edr::Reporter neverStarted("", "", 4, [](const std::string&) { return true; });
+    HS_CHECK(failing.Enqueue("health-delivery-test"));
+    HS_CHECK(failing.Start());
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        HS_CHECK(cv.wait_for(lock, std::chrono::seconds(5), [&] { return attempted; }));
+    }
+    HS_CHECK(failing.GetRuntimeState() == "started");
+    failing.Stop();
+    edr::HealthHeartbeat heartbeat(1, nullptr, nullptr, "", &failing, &neverStarted);
+    auto sample = jsonlite::parse(heartbeat.Snapshot());
+    HS_CHECK(sample.find("reporter_attempts") != nullptr);
+    HS_CHECK(sample.find("reporter_attempts")->asNumber() >= 1);
+    HS_CHECK(sample.find("reporter_succeeded")->asNumber() == 0);
+    HS_CHECK(sample.find("reporter_failed")->asNumber() ==
+             sample.find("reporter_attempts")->asNumber());
+    HS_CHECK(sample.find("reporter_consecutive_failures")->asNumber() ==
+             sample.find("reporter_failed")->asNumber());
+    HS_CHECK(!sample.find("reporter_in_progress")->asBool());
+    HS_CHECK(sample.find("reporter_last_attempt_100ns")->asString().size() >= 17);
+    HS_CHECK(sample.find("reporter_last_success_100ns")->type == jsonlite::Type::Null);
+    HS_CHECK(sample.find("event_reporter_attempts")->asNumber() == 0);
+    HS_CHECK(sample.find("event_reporter_failed")->asNumber() == 0);
+    HS_CHECK(sample.find("event_reporter_last_attempt_100ns")->type == jsonlite::Type::Null);
+
+    attempted = false;
+    edr::Reporter succeeding("", "", 4, [&](const std::string&) {
+        std::lock_guard<std::mutex> lock(mutex);
+        attempted = true;
+        cv.notify_all();
+        return true;
+    });
+    HS_CHECK(succeeding.Enqueue("accepted"));
+    HS_CHECK(succeeding.Start());
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        HS_CHECK(cv.wait_for(lock, std::chrono::seconds(5), [&] { return attempted; }));
+    }
+    succeeding.Stop();
+    edr::HealthHeartbeat accepted(1, nullptr, nullptr, "", nullptr, &succeeding);
+    sample = jsonlite::parse(accepted.Snapshot());
+    HS_CHECK(sample.find("reporter_attempts")->type == jsonlite::Type::Null);
+    HS_CHECK(sample.find("event_reporter_attempts")->asNumber() == 1);
+    HS_CHECK(sample.find("event_reporter_succeeded")->asNumber() == 1);
+    HS_CHECK(sample.find("event_reporter_failed")->asNumber() == 0);
+    HS_CHECK(sample.find("event_reporter_last_success_100ns")->asString().size() >= 17);
+}
+
 } // namespace
 
 void RunHealthSnapshotTests() {
@@ -319,4 +419,6 @@ void RunHealthSnapshotTests() {
     TestHealthStringsRoundTripJsonEscapesAndNul();
     std::fprintf(stderr, "[health_snapshot] reporter spool field isolation\n");
     TestReporterSpoolFailuresStayPerReporter();
+    TestSyslogHealthDistinguishesDisabledAndFailed();
+    TestReporterDeliveryResultsReachHeartbeatIndependently();
 }

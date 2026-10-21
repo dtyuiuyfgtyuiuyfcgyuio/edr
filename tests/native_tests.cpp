@@ -2096,7 +2096,8 @@ static void TestSemanticDedup() {
     CHECK(!dedup.IsDuplicate(firstDns));
     Event duplicateDns = firstDns;
     duplicateDns.fields[field::kQueryResults] = "192.0.2.1";
-    CHECK(dedup.IsDuplicate(duplicateDns));
+    // Matching query content does not establish a duplicate DNS observation.
+    CHECK(!dedup.IsDuplicate(duplicateDns));
 
     Event firstThread;
     firstThread.type = EDR_EVT_THREAD_CREATE;
@@ -3284,12 +3285,11 @@ static void TestSecurityLogParser4769() {
 
 static void TestSecurityLogParser4672() {
     Event elevated = ParseSec(SecXml(4672,
-        L"<Data Name='TargetUserName'>Administrator</Data>"
-        L"<Data Name='TargetDomainName'>DESKTOP-TEST</Data>"
-        L"<Data Name='TargetLogonId'>0x123abc</Data>"
+        L"<Data Name='SubjectUserName'>Administrator</Data>"
+        L"<Data Name='SubjectDomainName'>DESKTOP-TEST</Data>"
+        L"<Data Name='SubjectLogonId'>0x123abc</Data>"
         L"<Data Name='PrivilegeList'>SeTcbPrivilege SeDebugPrivilege</Data>"
-        L"<Data Name='SubjectUserName'>SYSTEM</Data>"
-        L"<Data Name='SubjectDomainName'>NT AUTHORITY</Data>").c_str());
+        L"<Data Name='SubjectUserSid'>S-1-5-21-500</Data>").c_str());
     CHECK(elevated.type == EDR_EVT_LOGON);
     CHECK(elevated.fields.at(field::kOperationType) == "LOGON_ELEVATED");
     CHECK(elevated.fields.at(field::kElevatedToken) == "true");
@@ -3321,7 +3321,7 @@ static void TestSecurityLogParser4720() {
 static void TestSecurityLogParser4697() {
     Event svc = ParseSec(SecXml(4697,
         L"<Data Name='ServiceName'>MaliciousSvc</Data>"
-        L"<Data Name='ImagePath'>C:\\ProgramData\\malware.exe</Data>"
+        L"<Data Name='ServiceFileName'>C:\\ProgramData\\malware.exe</Data>"
         L"<Data Name='ServiceStartType'>2</Data>"
         L"<Data Name='ServiceAccount'>LocalSystem</Data>"
         L"<Data Name='SubjectUserName'>Admin</Data>"
@@ -4229,7 +4229,7 @@ static void TestTaskSchedulerParser141() {
 
 static void TestTaskSchedulerParserInvalid() {
     Event event;
-    CHECK(!ParseTaskSchedulerXml(TaskXml(100,
+    CHECK(!ParseTaskSchedulerXml(TaskXml(101,
         L"<Data Name='TaskName'>\\x</Data>").c_str(), event));
     CHECK(!ParseTaskSchedulerXml(TaskXml(200,
         L"<Data Name='TaskName'>\\x</Data>").c_str(), event));

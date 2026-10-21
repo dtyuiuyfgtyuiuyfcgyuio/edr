@@ -92,11 +92,11 @@ static std::string SemanticKey(const Event& ev) {
         AppendField(key, ev, field::kHashes);
         break;
     case 8:
-        AppendField(key, ev, field::kTargetHost);
-        AppendField(key, ev, field::kDnsQueryName);
-        AppendField(key, ev, field::kDnsQueryType);
-        AppendField(key, ev, field::kDnsServerIp);
-        break;
+        // DNS content and time do not identify one query. A started record,
+        // its completion and another identical query are distinct evidence;
+        // collapsing them loses completion/status and frequency observations.
+        // The current event model carries no stable per-query ID.
+        return {};
     case 10:
         AppendField(key, ev, field::kTargetUser);
         AppendField(key, ev, field::kTargetDomain);

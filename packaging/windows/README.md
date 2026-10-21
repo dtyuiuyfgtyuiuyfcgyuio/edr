@@ -8,7 +8,9 @@
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File packaging\windows\build_installer.ps1 `
-  -BuildDir build `
+  -BuildDir build-release `
+  -Version 1.3.2026.1020 `
+  -OutputDir dist\1.3.2026.1020 `
   -IsccPath C:\Tools\InnoSetup\ISCC.exe `
   -DriverPath C:\Build\signed\edrdrv.sys `
   -DriverCertificate C:\Build\signed\edr-test-signing.cer `
@@ -40,6 +42,8 @@ node tests\installer_smoke_test.js '<验证安装后的目录>'
 
 `BuildVerificationInstaller` 以同一脚本/载荷编译 `StagingTest` 版本：当前用户安装，数据目录 `{app}\TestData`，强制 `StageOnly` 跳过 SCM、SYSTEM 任务和驱动注册。用它实测文件安装、修复、卸载与数据保留；smoke 核对文件 hash、打包 Node 启动、鉴权/规则读取、真实代理 selftest 和控制台优雅退出。
 
-上述证据不替代管理员安装、SYSTEM 启动或驱动加载验收；权限 CTest skip 单列。工作区日志不随源码发布。
+安装版 launcher 接受 `<绝对状态目录> [port]`，省略端口时仍为 `8080`；显式 `0` 让系统分配端口，仅绑定 `127.0.0.1`。验证脚本通过子进程 IPC 取得实际监听端口后执行 HTTP 检查，并验证非法端口立即失败，因此无需占用正式实例或其他程序的 8080。常规安装的服务/任务参数不传端口，保持默认配置。
+
+上述证据不替代管理员安装、SYSTEM 启动或驱动加载验收；权限 CTest skip 单列。构建者的本地日志写入 `.omo/installer-20261018/`，不随源码分发；本版验收摘要见 [Release 说明](../../docs/RELEASE_1.3.2026.1020.md) 和 Release 中的验证清单。
 
 接口依据：[Inno 组件](https://jrsoftware.org/ishelp/topic_componentssection.htm)、[生命周期与退出码](https://jrsoftware.org/ishelp/topic_scriptevents.htm)、[x64 驱动架构限制](https://jrsoftware.org/ishelp/topic_setup_architecturesallowed.htm)。

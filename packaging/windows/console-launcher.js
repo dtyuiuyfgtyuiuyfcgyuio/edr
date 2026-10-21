@@ -4,13 +4,18 @@ const fs = require('node:fs');
 const path = require('node:path');
 const state = path.resolve(process.argv[2] || '');
 if (!process.argv[2] || !path.isAbsolute(process.argv[2])) throw new Error('Absolute state directory required');
+const portText = process.argv[3] === undefined ? '8080' : process.argv[3];
+if (!/^(0|[1-9]\d{0,4})$/.test(portText) || Number(portText) > 65535) {
+    throw new Error('Invalid installed console port');
+}
+const port = Number(portText);
 const keys = JSON.parse(fs.readFileSync(path.join(state, 'console-keys.json'), 'utf8').replace(/^\uFEFF/, ''));
 for (const role of ['ingest', 'read', 'admin']) {
     if (!/^[a-f0-9]{64}$/.test(keys[role])) throw new Error(`Invalid installed ${role} key`);
 }
 if (new Set(Object.values(keys)).size !== 3) throw new Error('Installed role keys must differ');
 Object.assign(process.env, {
-    EDR_CONSOLE_MODE: 'development', EDR_BIND_HOST: '127.0.0.1', PORT: '8080',
+    EDR_CONSOLE_MODE: 'development', EDR_BIND_HOST: '127.0.0.1', PORT: portText,
     EDR_INGEST_API_KEY: keys.ingest, EDR_READ_API_KEY: keys.read, EDR_ADMIN_API_KEY: keys.admin,
     EDR_RESPONSE_CHANNEL_ENABLE: 'false', EDR_ENABLE_PROCESS_TERMINATION: 'false',
     EDR_ENABLE_QUARANTINE: 'false', EDR_ENABLE_DELETE_FILE: 'false',
@@ -48,7 +53,11 @@ function stop() {
 const timer = setInterval(() => { if (fs.existsSync(stopFile)) stop(); }, 500);
 process.on('SIGINT', stop);
 process.on('SIGTERM', stop);
-runtime.start(8080, '127.0.0.1').catch(error => {
+runtime.start(port, '127.0.0.1').then(() => {
+    if (typeof process.send === 'function') {
+        process.send({ type: 'edr-console-listening', port: runtime.server.address().port });
+    }
+}).catch(error => {
     logger.error('console start failed:', error.message);
     clearInterval(timer);
     process.exitCode = 1;

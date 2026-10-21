@@ -37,6 +37,17 @@ class Reporter {
 public:
     using PostFn = std::function<bool(const std::string&)>;
 
+    struct DeliveryStats {
+        uint64_t attempts = 0;
+        uint64_t succeeded = 0;
+        uint64_t failed = 0;
+        uint64_t consecutiveFailures = 0;
+        /* FILETIME epoch in 100ns ticks; zero means no such delivery yet. */
+        uint64_t lastAttempt100ns = 0;
+        uint64_t lastSuccess100ns = 0;
+        bool inProgress = false;
+    };
+
     Reporter(std::string url, std::string apiKey = "", size_t cacheLimit = 1000,
              PostFn postFn = {}, ReporterSpoolOptions spoolOptions = {});
     ~Reporter();
@@ -48,6 +59,7 @@ public:
     /* Read-only queue health metrics for the agent heartbeat and diagnostics. */
     uint64_t DroppedCount() const noexcept { return m_dropped.load(); }
     size_t QueuedCount() const;
+    DeliveryStats GetDeliveryStats() const;
     std::string GetRuntimeState() const;
     std::string GetSpoolStatus() const;
     uint64_t SpoolErrorCount() const noexcept;
@@ -87,6 +99,7 @@ private:
     std::thread m_thread;
     std::atomic<bool> m_stop{false};
     std::atomic<uint64_t> m_dropped{0};
+    DeliveryStats m_deliveryStats;
 };
 
 } // namespace edr

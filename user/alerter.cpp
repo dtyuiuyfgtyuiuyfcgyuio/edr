@@ -374,7 +374,8 @@ static uint64_t EventFingerprint(const Event& event, bool redact) {
     add(event.processIdentity);
     for (const auto& field : event.fields) {
         add(field.first);
-        if (redact && field.first == field::kScriptBlockText) {
+        if (redact && (field.first == field::kScriptBlockText ||
+                       field.first == field::kTaskContent)) {
             add("[redacted]");
         } else if (redact && field.first == field::kCommandLine) {
             add(Alerter::Redact(field.second));
@@ -466,7 +467,8 @@ std::string AlertToJsonLine(const Alert& alert, bool redact) {
         }
         first = false;
         std::string value = kv.second;
-        if (redact && kv.first == field::kScriptBlockText) {
+        if (redact && (kv.first == field::kScriptBlockText ||
+                       kv.first == field::kTaskContent)) {
             value = "[redacted]";
         } else if (redact && kv.first == field::kCommandLine) {
             value = Alerter::Redact(value);
@@ -527,7 +529,8 @@ std::string EventToJsonLine(const Event& ev, bool redact) {
         if (!first) line += ",";
         first = false;
         std::string value = kv.second;
-        if (redact && kv.first == field::kScriptBlockText)
+        if (redact && (kv.first == field::kScriptBlockText ||
+                       kv.first == field::kTaskContent))
             value = "[redacted]";
         else if (redact && kv.first == field::kCommandLine)
             value = Alerter::Redact(value);

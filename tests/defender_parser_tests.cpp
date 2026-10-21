@@ -139,19 +139,21 @@ void TestAsrEvents() {
     CHECK(missingGuid.pid == 0);
 
     Event unsupported;
-    CHECK(!ParseDefenderXml(DefenderXml(1123, L""), unsupported));
+    CHECK(!ParseDefenderXml(DefenderXml(1125, L""), unsupported));
 }
 
 void TestDefenderSubscriptionQuery() {
     const std::wstring query = DefenderSubscriptionQuery();
     CHECK(query ==
         L"*[System[(EventID=1116 or EventID=1117 or EventID=5001 or "
-        L"EventID=5007 or EventID=1121 or EventID=1122 or EventID=1129)]]");
-    for (unsigned int id : {1116, 1117, 5001, 5007, 1121, 1122, 1129}) {
+        L"EventID=5007 or EventID=1121 or EventID=1122 or EventID=1129 or "
+        L"EventID=1123 or EventID=1124 or EventID=1127 or EventID=1128)]]");
+    for (unsigned int id : {1116, 1117, 5001, 5007, 1121, 1122, 1129,
+                           1123, 1124, 1127, 1128}) {
         CHECK(query.find(L"EventID=" + std::to_wstring(id)) !=
               std::wstring::npos);
     }
-    CHECK(query.find(L"1123") == std::wstring::npos);
+    CHECK(query.find(L"1125") == std::wstring::npos);
     EVT_HANDLE result = EvtQuery(nullptr, L"Application", query.c_str(),
                                 EvtQueryChannelPath);
     CHECK(result != nullptr);

@@ -1124,6 +1124,137 @@ if(BUILD_TESTING)
     target_link_libraries(edr_defender_tests PRIVATE bcrypt wevtapi)
     add_test(NAME edr_defender_tests COMMAND edr_defender_tests
         "${CMAKE_CURRENT_SOURCE_DIR}/rules/rules.json")
+    add_executable(edr_defender_cfa_tests
+        tests/defender_cfa_tests.cpp user/defender_parser.cpp
+        user/config.cpp user/event_bus.cpp user/rule_engine.cpp user/rule_lint.cpp)
+    target_include_directories(edr_defender_cfa_tests PRIVATE user common)
+    target_compile_definitions(edr_defender_cfa_tests PRIVATE
+        UNICODE _UNICODE _CRT_SECURE_NO_WARNINGS NOMINMAX)
+    if(MSVC)
+        target_compile_options(edr_defender_cfa_tests PRIVATE /W4 /utf-8 /EHsc)
+        target_link_options(edr_defender_cfa_tests PRIVATE /NODEFAULTLIB:OLDNAMES.lib)
+    endif()
+    target_link_libraries(edr_defender_cfa_tests PRIVATE bcrypt wevtapi)
+    add_test(NAME edr_defender_cfa_tests COMMAND edr_defender_cfa_tests
+        "${CMAKE_CURRENT_SOURCE_DIR}/rules/rules.json")
+
+    add_executable(edr_taskscheduler_runtime_tests
+        tests/taskscheduler_runtime_tests.cpp user/taskscheduler_parser.cpp
+        user/config.cpp user/event_bus.cpp user/task_abuse_detector.cpp
+        user/persistence_burst_detector.cpp user/persistence_chain_detector.cpp)
+    target_include_directories(edr_taskscheduler_runtime_tests PRIVATE user common)
+    target_compile_definitions(edr_taskscheduler_runtime_tests PRIVATE
+        UNICODE _UNICODE _CRT_SECURE_NO_WARNINGS NOMINMAX)
+    if(MSVC)
+        target_compile_options(edr_taskscheduler_runtime_tests PRIVATE /W4 /utf-8 /EHsc)
+        target_link_options(edr_taskscheduler_runtime_tests PRIVATE /NODEFAULTLIB:OLDNAMES.lib)
+    endif()
+    target_link_libraries(edr_taskscheduler_runtime_tests PRIVATE bcrypt advapi32 wevtapi)
+    add_test(NAME edr_taskscheduler_runtime_tests COMMAND edr_taskscheduler_runtime_tests)
+
+    add_executable(edr_doh_abuse_tests
+        tests/doh_abuse_contract_tests.cpp tests/doh_abuse_detector_tests.cpp
+        user/doh_abuse_detector.cpp)
+    target_include_directories(edr_doh_abuse_tests PRIVATE user common tests)
+    target_compile_definitions(edr_doh_abuse_tests PRIVATE
+        UNICODE _UNICODE _CRT_SECURE_NO_WARNINGS NOMINMAX)
+    if(MSVC)
+        target_compile_options(edr_doh_abuse_tests PRIVATE /W4 /utf-8 /EHsc)
+        target_link_options(edr_doh_abuse_tests PRIVATE /NODEFAULTLIB:OLDNAMES.lib)
+    endif()
+    add_test(NAME edr_doh_abuse_tests COMMAND edr_doh_abuse_tests)
+
+    add_executable(edr_dns_delivery_contract_tests
+        tests/dns_delivery_contract_tests.cpp user/event_bus.cpp
+        user/doh_abuse_detector.cpp)
+    target_include_directories(edr_dns_delivery_contract_tests PRIVATE user common)
+    target_compile_definitions(edr_dns_delivery_contract_tests PRIVATE
+        UNICODE _UNICODE _CRT_SECURE_NO_WARNINGS NOMINMAX)
+    if(MSVC)
+        target_compile_options(edr_dns_delivery_contract_tests PRIVATE /W4 /utf-8 /EHsc)
+        target_link_options(edr_dns_delivery_contract_tests PRIVATE /NODEFAULTLIB:OLDNAMES.lib)
+    endif()
+    add_test(NAME edr_dns_delivery_contract_tests COMMAND edr_dns_delivery_contract_tests)
+
+    add_executable(edr_security_log_contract_tests
+        tests/security_log_contract_tests.cpp user/security_log_parser.cpp
+        user/service_install_detector.cpp user/time_change_detector.cpp
+        user/config.cpp user/event_bus.cpp user/rule_engine.cpp user/rule_lint.cpp)
+    add_executable(edr_privilege_escalation_contract_tests
+        tests/privilege_escalation_contract_tests.cpp tests/privilege_escalation_detector_tests.cpp
+        user/privilege_escalation_detector.cpp user/sysmon_parser.cpp user/privilege_log_parser.cpp
+        user/config.cpp user/event_bus.cpp user/rule_engine.cpp user/rule_lint.cpp)
+    add_executable(edr_sysmon_file_delete_tests
+        tests/sysmon_file_delete_tests.cpp user/sysmon_parser.cpp
+        user/history_tamper_detector.cpp user/process_tree_builder.cpp
+        user/config.cpp user/event_bus.cpp user/rule_engine.cpp user/rule_lint.cpp)
+    add_executable(edr_sysmon_sensor_health_tests
+        tests/sysmon_sensor_health_tests.cpp user/sysmon_parser.cpp
+        user/process_tree_builder.cpp user/config.cpp user/event_bus.cpp
+        user/rule_engine.cpp user/rule_lint.cpp)
+    add_executable(edr_security_audit_visibility_tests
+        tests/security_audit_visibility_tests.cpp user/security_log_parser.cpp
+        user/config.cpp user/event_bus.cpp user/rule_engine.cpp user/rule_lint.cpp)
+    foreach(_contract_target edr_security_log_contract_tests
+            edr_privilege_escalation_contract_tests edr_sysmon_file_delete_tests
+            edr_sysmon_sensor_health_tests edr_security_audit_visibility_tests)
+        target_include_directories(${_contract_target} PRIVATE user common tests)
+        target_compile_definitions(${_contract_target} PRIVATE
+            UNICODE _UNICODE _CRT_SECURE_NO_WARNINGS NOMINMAX)
+        if(MSVC)
+            target_compile_options(${_contract_target} PRIVATE /W4 /utf-8 /EHsc)
+            target_link_options(${_contract_target} PRIVATE /NODEFAULTLIB:OLDNAMES.lib)
+        endif()
+        target_link_libraries(${_contract_target} PRIVATE bcrypt advapi32 wevtapi)
+    endforeach()
+    add_test(NAME edr_security_log_contract_tests COMMAND edr_security_log_contract_tests
+        "${CMAKE_CURRENT_SOURCE_DIR}/rules/rules.json")
+    add_test(NAME edr_privilege_escalation_contract_tests COMMAND edr_privilege_escalation_contract_tests
+        "${CMAKE_CURRENT_SOURCE_DIR}/rules/rules.json")
+    add_test(NAME edr_sysmon_file_delete_tests COMMAND edr_sysmon_file_delete_tests
+        "${CMAKE_CURRENT_SOURCE_DIR}/rules/rules.json")
+    add_test(NAME edr_sysmon_sensor_health_tests COMMAND edr_sysmon_sensor_health_tests
+        "${CMAKE_CURRENT_SOURCE_DIR}/rules/rules.json")
+    add_test(NAME edr_security_audit_visibility_tests COMMAND edr_security_audit_visibility_tests
+        "${CMAKE_CURRENT_SOURCE_DIR}/rules/rules.json")
+
+    add_executable(edr_reporter_metrics_tests
+        tests/reporter_metrics_tests.cpp user/reporter.cpp user/reporter_spool.cpp
+        user/config.cpp user/event_bus.cpp)
+    target_include_directories(edr_reporter_metrics_tests PRIVATE user common)
+    target_compile_definitions(edr_reporter_metrics_tests PRIVATE
+        UNICODE _UNICODE _CRT_SECURE_NO_WARNINGS NOMINMAX)
+    if(MSVC)
+        target_compile_options(edr_reporter_metrics_tests PRIVATE /W4 /utf-8 /EHsc)
+        target_link_options(edr_reporter_metrics_tests PRIVATE /NODEFAULTLIB:OLDNAMES.lib)
+    endif()
+    target_link_libraries(edr_reporter_metrics_tests PRIVATE bcrypt advapi32 winhttp)
+    add_test(NAME edr_reporter_metrics_tests COMMAND edr_reporter_metrics_tests)
+
+    add_executable(edr_task_content_redaction_tests
+        tests/task_content_redaction_tests.cpp user/alerter.cpp
+        user/config.cpp user/event_bus.cpp)
+    target_include_directories(edr_task_content_redaction_tests PRIVATE user common)
+    target_compile_definitions(edr_task_content_redaction_tests PRIVATE
+        UNICODE _UNICODE _CRT_SECURE_NO_WARNINGS NOMINMAX)
+    if(MSVC)
+        target_compile_options(edr_task_content_redaction_tests PRIVATE /W4 /utf-8 /EHsc)
+        target_link_options(edr_task_content_redaction_tests PRIVATE /NODEFAULTLIB:OLDNAMES.lib)
+    endif()
+    target_link_libraries(edr_task_content_redaction_tests PRIVATE bcrypt advapi32)
+    add_test(NAME edr_task_content_redaction_tests COMMAND edr_task_content_redaction_tests)
+
+    add_executable(edr_syslog_forwarder_tests
+        tests/syslog_forwarder_tests.cpp user/syslog_forwarder.cpp)
+    target_include_directories(edr_syslog_forwarder_tests PRIVATE user common)
+    target_compile_definitions(edr_syslog_forwarder_tests PRIVATE
+        UNICODE _UNICODE _CRT_SECURE_NO_WARNINGS NOMINMAX)
+    if(MSVC)
+        target_compile_options(edr_syslog_forwarder_tests PRIVATE /W4 /utf-8 /EHsc)
+    endif()
+    target_link_libraries(edr_syslog_forwarder_tests PRIVATE ws2_32)
+    add_test(NAME edr_syslog_forwarder_tests COMMAND edr_syslog_forwarder_tests)
+
     add_executable(edr_sysmon_tamper_tests
         tests/sysmon_tamper_tests.cpp user/sysmon_parser.cpp user/process_tree_builder.cpp
         user/config.cpp user/event_bus.cpp user/rule_engine.cpp user/rule_lint.cpp)
@@ -1232,6 +1363,19 @@ if(BUILD_TESTING)
     add_test(NAME edr_rule_lint_tests COMMAND edr_rule_lint_tests)
     add_test(NAME edr_production_rule_lint COMMAND edr_rule_lint
         "${CMAKE_CURRENT_SOURCE_DIR}/rules/rules.json")
+
+    # Stage the exact production catalogs for tests using relative fixture paths.
+    # This also supports binary trees located outside the source directory.
+    file(GLOB EDR_TEST_RULE_FILES CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/rules/*.json")
+    foreach(rule_file IN LISTS EDR_TEST_RULE_FILES)
+        get_filename_component(rule_name "${rule_file}" NAME)
+        configure_file("${rule_file}"
+            "${CMAKE_CURRENT_BINARY_DIR}/rules/${rule_name}" COPYONLY)
+    endforeach()
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/rule-tests")
+    set_tests_properties(edr_native_tests edr_net_etw_tests PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/rule-tests")
 endif()
 
 # ---------------------------------------------------------------------------

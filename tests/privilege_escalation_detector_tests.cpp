@@ -25,6 +25,8 @@ edr::Event ServiceInstall(const std::string& imagePath,
     ev.type = EDR_EVT_SERVICE_INSTALL;
     ev.pid = pid;
     ev.ts100ns = ts;
+    ev.source = "native_test";
+    ev.processStartTime100ns = 1;
     ev.fields[edr::field::kServiceImagePath] = imagePath;
     ev.fields[edr::field::kServiceName] = name;
     return ev;
@@ -36,6 +38,8 @@ edr::Event ProcAccess(const std::string& target, const std::string& mask,
     ev.type = EDR_EVT_PROCESS_ACCESS;
     ev.pid = pid;
     ev.ts100ns = ts;
+    ev.source = "native_test";
+    ev.processStartTime100ns = 1;
     ev.fields[edr::field::kTargetImage] = target;
     ev.fields[edr::field::kAccessMask] = mask;
     return ev;
@@ -46,6 +50,8 @@ edr::Event Privilege(const std::string& privs, uint32_t pid, uint64_t ts) {
     ev.type = EDR_EVT_PRIVILEGE;
     ev.pid = pid;
     ev.ts100ns = ts;
+    ev.source = "native_test";
+    ev.processStartTime100ns = 1;
     ev.fields[edr::field::kPrivileges] = privs;
     return ev;
 }
@@ -87,7 +93,8 @@ void TestSuspiciousPrivilege() {
 void TestMultiSignalCorrelation() {
     edr::PrivilegeEscalationDetector det(true, 300, 4096);
     const uint64_t base = 4000000000ULL;
-    det.Enrich(ServiceInstall("C:\\Temp\\evil.exe", "svc", 7004, base));
+    auto service = ServiceInstall("C:\\Temp\\evil.exe", "svc", 7004, base);
+    det.Enrich(service);
     edr::Event ev = Privilege("SeDebugPrivilege", 7004, base + 10000000);
     det.Enrich(ev);
     const uint32_t score = static_cast<uint32_t>(

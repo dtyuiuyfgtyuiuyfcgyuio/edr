@@ -1,19 +1,20 @@
 /*
  * privilege_escalation_detector.h - Privilege escalation detector
- * (MITRE T1134 / T1068).
+ * (MITRE T1134 / T1543.003 / T1574.001).
  *
  * Correlates escalation indicators:
- *  - Service install with LocalSystem account and suspicious binary path
+ *  - Service install with a suspicious binary path
  *  - Token manipulation: access to other process with duplicate-handle rights
- *  - Privilege escalation via suspicious parent-child: low-priv parent
- *    spawning elevated child
  *  - Suspicious DLL sideloading into elevated processes
- * Events are stamped with priv_esc_* fields when confirmed.
+ * Signals are heuristics, not proof of successful elevation. Cross-event
+ * scores require a reliable process instance, source and endpoint scope.
+ * Without that identity only the current event's signal is stamped.
  */
 #ifndef EDR_PRIVILEGE_ESCALATION_DETECTOR_H
 #define EDR_PRIVILEGE_ESCALATION_DETECTOR_H
 
 #include <cstddef>
+#include <array>
 #include <cstdint>
 #include <string>
 #include <unordered_map>
@@ -43,14 +44,15 @@ private:
         bool sawSuspiciousPrivilege = false;
         std::string detail;
         uint64_t lastSeen100ns = 0;
+        std::array<uint64_t, 5> signalTimes{};
     };
 
-    static bool IsLocalSystemService(const std::string& account);
     static bool IsSuspiciousServicePath(const std::string& path);
     static bool IsSuspiciousPrivilege(const std::string& privileges);
     static bool HasDuplicateHandleAccess(const std::string& accessMask);
     static bool IsElevatedImage(const std::string& image);
     void PurgeExpired(uint64_t now100ns);
+    void ExpireSignals(ProcState& state, uint64_t now100ns) const;
     uint32_t ComputeScore(const ProcState& state) const;
     std::string SignalList(const ProcState& state) const;
     std::string TechniqueList(const ProcState& state) const;
@@ -60,7 +62,7 @@ private:
     uint64_t m_window100ns;
     uint32_t m_windowSeconds;
     size_t m_stateCapacity;
-    std::unordered_map<uint32_t, ProcState> m_procs;
+    std::unordered_map<std::string, ProcState> m_procs;
 };
 
 } // namespace edr

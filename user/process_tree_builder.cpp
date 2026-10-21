@@ -37,9 +37,10 @@ std::string JsonEscape(const std::string& value) {
 } // namespace
 
 void ProcessTreeBuilder::Observe(const Event& event) {
-    // Sysmon tampering identifies a subject, but supplies no parent evidence.
+    // Tampering and file deletion identify a subject, but supply no parent evidence.
     // Leave ancestry and the previously observed image unchanged.
-    if (event.pid == 0 || event.type == EDR_EVT_PROCESS_TAMPERING) return;
+    if (event.pid == 0 || event.type == EDR_EVT_PROCESS_TAMPERING ||
+        event.type == EDR_EVT_FILE_DELETE) return;
     const auto image = event.fields.find(field::kImage);
     AddParentChild(event.ppid, event.pid,
         image == event.fields.end() ? "" : image->second);

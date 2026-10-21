@@ -183,6 +183,8 @@
 #include "credential_dumping_detector.h"
 #include "data_exfiltration_detector.h"
 #include "privilege_escalation_detector.h"
+#include "sysmon_parser.h"
+#include "security_log_parser.h"
 #include "ntlm_relay_detector.h"
 #include "browser_theft_detector.h"
 #include "browser_extension_detector.h"
@@ -1557,8 +1559,98 @@ static void InjectSelftestEvents(EventBus& bus) {
     }
 }
 
+static void InjectAuditSelftestEvents(EventBus& bus, const Config& cfg) {
+    auto publish = [&](const wchar_t* xml,
+                       bool (*parse)(const std::wstring&, Event&),
+                       const char* label) {
+        Event event;
+        if (!parse(xml, event))
+            throw std::runtime_error(std::string("selftest audit fixture rejected: ") + label);
+        event.fields["selftest"] = label;
+        bus.Push(event);
+    };
+    if (cfg.enableSysmon) {
+        publish(L"<Event><System><EventID>4</EventID></System><EventData>"
+                L"<Data Name='State'>Started</Data><Data Name='Version'>15</Data>"
+                L"<Data Name='SchemaVersion'>4.90</Data></EventData></Event>",
+                ParseSysmonXml, "sysmon_service_state");
+        publish(L"<Event><System><EventID>16</EventID></System><EventData>"
+                L"<Data Name='Configuration'>C:\\EDR-Selftest\\sysmon.xml</Data>"
+                L"<Data Name='ConfigurationFileHash'>SHA256=selftest</Data>"
+                L"</EventData></Event>", ParseSysmonXml, "sysmon_config_change");
+        publish(L"<Event><System><EventID>255</EventID></System><EventData>"
+                L"<Data Name='ID'>selftest</Data>"
+                L"<Data Name='Description'>Synthetic sensor error</Data>"
+                L"</EventData></Event>", ParseSysmonXml, "sysmon_error");
+    }
+    if (cfg.enableSecurityLog) {
+        publish(L"<Event><System><EventID>4719</EventID></System><EventData>"
+                L"<Data Name='SubjectUserName'>EDR-Selftest</Data>"
+                L"<Data Name='SubjectLogonId'>0x1234</Data>"
+                L"<Data Name='CategoryId'>%%8273</Data>"
+                L"<Data Name='SubcategoryId'>%%12807</Data>"
+                L"<Data Name='AuditPolicyChanges'>%%8448</Data>"
+                L"</EventData></Event>", ParseSecurityLogXml, "audit_policy_change");
+        publish(L"<Event><System><EventID>1104</EventID></System></Event>",
+                ParseSecurityLogXml, "security_log_full");
+        publish(L"<Event><System><EventID>4698</EventID><Version>1</Version>"
+                L"</System><EventData>"
+                L"<Data Name='SubjectUserName'>EDR-Selftest</Data>"
+                L"<Data Name='SubjectLogonId'>0x1234</Data>"
+                L"<Data Name='TaskName'>\\EDR-Selftest\\MaintenanceCreate</Data>"
+                L"<Data Name='ClientProcessId'>4242</Data>"
+                L"<Data Name='ParentProcessId'>1111</Data>"
+                L"<Data Name='ClientProcessStartKey'>123456789</Data>"
+                L"<Data Name='TaskContent'>&lt;Task&gt;&lt;Actions&gt;"
+                L"&lt;Exec&gt;&lt;Command&gt;maintenance.exe&lt;/Command&gt;"
+                L"&lt;/Exec&gt;&lt;/Actions&gt;&lt;/Task&gt;</Data>"
+                L"</EventData></Event>", ParseSecurityLogXml, "security_task_create");
+        publish(L"<Event><System><EventID>4702</EventID></System><EventData>"
+                L"<Data Name='SubjectUserName'>EDR-Selftest</Data>"
+                L"<Data Name='SubjectLogonId'>0x1234</Data>"
+                L"<Data Name='TaskName'>\\EDR-Selftest\\MaintenanceUpdate</Data>"
+                L"<Data Name='TaskContentNew'>&lt;Task&gt;&lt;Actions&gt;"
+                L"&lt;Exec&gt;&lt;Command&gt;maintenance-v2.exe&lt;/Command&gt;"
+                L"&lt;/Exec&gt;&lt;/Actions&gt;&lt;/Task&gt;</Data>"
+                L"</EventData></Event>", ParseSecurityLogXml, "security_task_update");
+    }
+}
+
 static void InjectCorrelationSelftestEvents(EventBus& bus, const Config& cfg) {
     const uint64_t now = Now100ns();
+    if (cfg.historyTamperEnable) {
+        Event deletion;
+        if (!ParseSysmonXml(
+            L"<Event><System><EventID>26</EventID></System><EventData>"
+            L"<Data Name='ProcessId'>4403</Data>"
+            L"<Data Name='ProcessGuid'>{1ee68881-433f-4214-a356-69b992f6d003}</Data>"
+            L"<Data Name='Image'>C:\\EDR-Selftest\\history-test.exe</Data>"
+            L"<Data Name='TargetFilename'>C:\\EDR-Selftest\\ConsoleHost_history.txt</Data>"
+            L"</EventData></Event>", deletion))
+            throw std::runtime_error("selftest Sysmon file-deletion fixture rejected");
+        deletion.fields["selftest"] = "sysmon_file_delete";
+        bus.Push(deletion);
+    }
+    if (cfg.privEscEnable) {
+        Event access;
+        access.type = EDR_EVT_PROCESS_ACCESS;
+        access.pid = 4404;
+        access.ts100ns = now;
+        access.processStartTime100ns = now - 10000000ULL;
+        access.source = "selftest";
+        access.fields[field::kSource] = access.source;
+        access.fields[field::kType] = "PROCESS_ACCESS";
+        access.fields[field::kImage] = "C:\\EDR-Selftest\\privilege-test.exe";
+        access.fields[field::kTargetImage] = "C:\\Windows\\System32\\lsass.exe";
+        access.fields[field::kAccessMask] = "0x40";
+        bus.Push(access);
+        Event privilege = access;
+        privilege.type = EDR_EVT_PRIVILEGE;
+        privilege.ts100ns = now + 1;
+        privilege.fields[field::kType] = "PRIVILEGE";
+        privilege.fields[field::kPrivileges] = "SeDebugPrivilege";
+        bus.Push(privilege);
+    }
     if (cfg.logonSuccessEnable) {
         for (uint32_t index = 0; index <= cfg.logonSuccessMinFailures; ++index) {
             Event event;
@@ -1594,6 +1686,27 @@ static void InjectCorrelationSelftestEvents(EventBus& bus, const Config& cfg) {
             event.fields[field::kDnsQueryName] =
                 "q" + std::to_string(index) + ".edr-selftest.example.com";
             event.fields[field::kDnsEntropy] = "4.2";
+            bus.Push(event);
+        }
+    }
+    if (cfg.dohAbuseEnable) {
+        for (uint32_t index = 0; index < cfg.dohAbuseMinRepeatCount; ++index) {
+            Event event;
+            event.type = EDR_EVT_DNS_QUERY;
+            event.ts100ns = now + index;
+            event.pid = 4402;
+            event.processStartTime100ns = now - 10000000ULL;
+            event.source = "dns_etw";
+            event.fields[field::kSource] = event.source;
+            event.fields[field::kType] = "DNS_QUERY";
+            event.fields[field::kImage] = "C:\\EDR-Selftest\\doh-client.exe";
+            event.fields[field::kDnsQueryName] = "dns.google";
+            event.fields[field::kDnsQueryStatus] = "0";
+            event.fields["dns_phase"] = "completed";
+            Event started = event;
+            started.disposition = EventDisposition::ReportOnly;
+            started.fields["dns_phase"] = "started";
+            bus.Push(started);
             bus.Push(event);
         }
     }
@@ -1756,8 +1869,8 @@ public:
             m_syslogForwarder = std::make_unique<SyslogForwarder>(
                 cfg.syslogHost, cfg.syslogPort, cfg.syslogFacility, hostname);
             if (!m_syslogForwarder->Start()) {
-                std::fprintf(stderr, "[edr] syslog forwarder enabled but start failed; disabled\n");
-                m_syslogForwarder.reset();
+                std::fprintf(stderr, "[edr] syslog forwarder start failed (error=%d); health retains failure state\n",
+                    m_syslogForwarder->GetStatsSnapshot().lastError);
             } else {
                 std::fprintf(stderr,
                     "[edr] syslog forwarder armed (%s:%lu facility=%lu)\n",
@@ -3468,6 +3581,7 @@ public:
 
         if (cfg.selftest) {
             InjectSelftestEvents(m_bus);
+            InjectAuditSelftestEvents(m_bus, cfg);
             InjectCorrelationSelftestEvents(m_bus, cfg);
             /* Let the single consumer drain, then shut down. */
             for (int i = 0; i < 100 && m_bus.Pending() > 0; i++) {

@@ -3,12 +3,13 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { spawn, spawnSync } = require('node:child_process');
+const { fork, spawnSync } = require('node:child_process');
 const http = require('node:http');
 const root = path.resolve(process.argv[2] || '');
 assert(process.argv[2], 'Installed verification directory required');
 const json = file => JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
 const state = path.join(root, 'TestData');
+let consolePort;
 const manifest = json(path.join(root, 'payload-manifest.json'));
 let checked = 0;
 for (const file of manifest.files) {
@@ -20,7 +21,7 @@ for (const file of manifest.files) {
 }
 function request(url, key) {
     return new Promise((resolve, reject) => {
-        const req = http.get(`http://127.0.0.1:8080${url}`, { headers: key ? { 'X-API-Key': key } : {} }, res => {
+        const req = http.get(`http://127.0.0.1:${consolePort}${url}`, { headers: key ? { 'X-API-Key': key } : {} }, res => {
             const chunks = [];
             res.on('data', data => chunks.push(data));
             res.on('end', () => resolve({ status: res.statusCode, data: Buffer.concat(chunks).toString() }));
@@ -31,16 +32,33 @@ function request(url, key) {
 }
 async function main() {
     const keys = json(path.join(state, 'console-keys.json'));
-    const child = spawn(path.join(root, 'runtime', 'node.exe'), [path.join(root, 'console', 'installed-launcher.js'), state],
-        { cwd: root, windowsHide: true, stdio: 'ignore' });
-    const exited = new Promise((resolve, reject) => { child.once('error', reject); child.once('exit', resolve); });
+    for (const invalidPort of ['', '-1', '65536', '1.5', '8080x', ' 8080', '1e3']) {
+        const invalid = spawnSync(path.join(root, 'runtime', 'node.exe'),
+            [path.join(root, 'console', 'installed-launcher.js'), state, invalidPort],
+            { cwd: root, windowsHide: true, encoding: 'utf8', timeout: 5000 });
+        assert.equal(invalid.status, 1, 'Invalid console port must stop startup');
+        assert.match(invalid.stderr, /Invalid installed console port/);
+    }
+    const child = fork(path.join(root, 'console', 'installed-launcher.js'), [state, '0'],
+        { execPath: path.join(root, 'runtime', 'node.exe'), cwd: root, windowsHide: true,
+            stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
+    const exited = new Promise(resolve => { child.once('error', () => resolve(null)); child.once('exit', resolve); });
+    const started = new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('Installed console readiness timed out')), 10000);
+        child.once('error', error => { clearTimeout(timer); reject(error); });
+        child.once('exit', code => { clearTimeout(timer); reject(new Error(`Installed console exited before readiness: ${code}`)); });
+        child.once('message', message => {
+            clearTimeout(timer);
+            if (message?.type !== 'edr-console-listening' || !Number.isInteger(message.port) ||
+                message.port < 1 || message.port > 65535) {
+                reject(new Error('Installed console sent invalid readiness information'));
+            } else resolve(message.port);
+        });
+    });
     try {
-        let ready = false;
-        for (let i = 0; i < 100 && !ready; i++) {
-            try { ready = (await request('/api/alerts', keys.read)).status === 200; } catch (_) {}
-            if (!ready) await new Promise(resolve => setTimeout(resolve, 100));
-        }
-        assert(ready, 'Installed console starts with its bundled Node runtime and role keys');
+        consolePort = await started;
+        assert.equal((await request('/api/alerts', keys.read)).status, 200,
+            'Installed console starts with its bundled Node runtime and role keys');
         assert.equal((await request('/api/alerts')).status, 401, 'Unauthenticated access is rejected');
         assert.equal((await request('/api/rules/coverage', keys.read)).status, 200, 'Installed production rule catalog is available');
         const cfg = json(path.join(state, 'config', 'edr.config.json'));
@@ -62,7 +80,7 @@ async function main() {
             timer.unref();
         })]);
         assert.equal(stopped, 0, 'Console stops gracefully through its protected state directory');
-        console.log(JSON.stringify({ filesVerified: checked, consoleAuthentication: true, ruleCatalog: true,
+        console.log(JSON.stringify({ filesVerified: checked, consolePort, consoleAuthentication: true, ruleCatalog: true,
             nativeSelftestAlerts: alerts.length, gracefulConsoleStop: true }));
     } finally {
         if (child.exitCode === null) { child.kill(); await exited; }

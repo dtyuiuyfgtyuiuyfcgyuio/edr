@@ -3,7 +3,7 @@ param(
     [Parameter(Mandatory=$true)][string]$DriverPath,
     [Parameter(Mandatory=$true)][string]$DriverCertificate,
     [Parameter(Mandatory=$true)][string]$NodeLicense,
-    [string]$BuildDir = 'build',
+    [string]$BuildDir = 'build-edr-expansion-20261011',
     [string]$Version = '1.0.2026.1018',
     [string]$OutputDir = 'dist',
     [string]$NodeExe = (Get-Command node.exe -ErrorAction Stop).Source,

@@ -219,6 +219,78 @@ void RunRuleLintTests() {
         LINT_CHECK(CountCode(rep, "band_leak") == 1u);
     }
 
+    std::fprintf(stderr, "[lint] TestScoreBandOnlyAppliesToScoreFields\n");
+    {
+        const auto rep = Lint(
+            Document(
+                R"j({"id":"EDR-135","severity":"medium","action":"alert",)j"
+                R"j("mitre_attack":["T1059"],"mitre_tactic":["Execution"],)j"
+                R"j("match":{"image":{"regex":"50"},"pid":{"regex":"50"},)j"
+                R"j("detection_path":{"regex":"50"},"process_name":{"regex":"50"},)j"
+                R"j("threat_intel_feed":{"regex":"50"},"retry_count":{"regex":"50"},)j"
+                R"j("scoreboard":{"regex":"50"},"decision_score_note":{"regex":"50"},)j"
+                R"j("attempt_count":{"regex":"("}}})j"),
+            nullptr, nullptr);
+        LINT_CHECK(CountCode(rep, "band_leak") == 0u);
+        LINT_CHECK(CountCode(rep, "bad_regex") == 1u);
+        LINT_CHECK(FindCode(rep, "bad_regex") != nullptr &&
+                   FindCode(rep, "bad_regex")->severity == "error");
+    }
+
+    std::fprintf(stderr, "[lint] TestScoreFieldNamesUseExactOrSuffixContract\n");
+    {
+        const auto rep = Lint(
+            Document(
+                R"j({"id":"EDR-136","severity":"medium","action":"alert",)j"
+                R"j("mitre_attack":["T1059"],"mitre_tactic":["Execution"],)j"
+                R"j("match":{"score":{"regex":"50"},"decision_score":{"regex":"50"},)j"
+                R"j("decision_score_note":{"regex":"50"}}})j"),
+            nullptr, nullptr);
+        LINT_CHECK(CountCode(rep, "band_leak") == 2u);
+    }
+
+    std::fprintf(stderr, "[lint] TestNotRegexProbesRuntimeAcceptedScoreSet\n");
+    {
+        const auto rep = Lint(
+            Document(
+                R"j({"id":"EDR-137","severity":"medium","action":"alert",)j"
+                R"j("mitre_attack":["T1059"],"mitre_tactic":["Execution"],)j"
+                R"j("match":{"x_score":{"not_regex":"^(?:[0-4][0-9]|5[5-9]|[6-9][0-9]|100)$"}}},)j"
+                R"j({"id":"EDR-138","severity":"medium","action":"alert",)j"
+                R"j("mitre_attack":["T1059"],"mitre_tactic":["Execution"],)j"
+                R"j("match":{"x_score":{"not_regex":"^(?:[0-4][0-9]|5[0-4])$"}}},)j"
+                R"j({"id":"EDR-139","severity":"medium","action":"alert",)j"
+                R"j("mitre_attack":["T1059"],"mitre_tactic":["Execution"],)j"
+                R"j("match":{"x_score":{"regex":"^(?:[5-9][0-9]|100)$",)j"
+                R"j("not_regex":"^5[0-4]$"}}})j"),
+            nullptr, nullptr);
+        LINT_CHECK(CountCode(rep, "band_leak") == 1u);
+        LINT_CHECK(FindCode(rep, "band_leak") != nullptr &&
+                   FindCode(rep, "band_leak")->ruleId == "EDR-137");
+    }
+
+    std::fprintf(stderr, "[lint] TestEqAndContainsConstrainAcceptedScoreSet\n");
+    {
+        const auto rep = Lint(
+            Document(
+                R"j({"id":"EDR-140","severity":"medium","action":"alert",)j"
+                R"j("mitre_attack":["T1059"],"mitre_tactic":["Execution"],)j"
+                R"j("match":{"x_score":{"eq":"55","regex":"^(?:[5-9][0-9]|100)$"}}},)j"
+                R"j({"id":"EDR-141","severity":"medium","action":"alert",)j"
+                R"j("mitre_attack":["T1059"],"mitre_tactic":["Execution"],)j"
+                R"j("match":{"x_score":{"contains":"55","regex":"^(?:[5-9][0-9]|100)$"}}},)j"
+                R"j({"id":"EDR-142","severity":"medium","action":"alert",)j"
+                R"j("mitre_attack":["T1059"],"mitre_tactic":["Execution"],)j"
+                R"j("match":{"x_score":{"eq":"54","regex":"^(?:[5-9][0-9]|100)$"}}},)j"
+                R"j({"id":"EDR-143","severity":"medium","action":"alert",)j"
+                R"j("mitre_attack":["T1059"],"mitre_tactic":["Execution"],)j"
+                R"j("match":{"x_score":{"contains":"5","regex":"^(?:[5-9][0-9]|100)$"}}})j"),
+            nullptr, nullptr);
+        LINT_CHECK(CountCode(rep, "band_leak") == 2u);
+        LINT_CHECK(FindCode(rep, "band_leak") != nullptr &&
+                   FindCode(rep, "band_leak")->ruleId == "EDR-142");
+    }
+
     std::fprintf(stderr, "[lint] TestBandLeakDocumented50Exempt\n");
     {
         /* An intentional 50+ floor is documented in comments and accepted. */

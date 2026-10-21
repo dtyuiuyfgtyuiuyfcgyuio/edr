@@ -3,7 +3,9 @@
 #include <windows.h>
 #include <cstdio>
 #include <initializer_list>
+#include <limits>
 #include <map>
+#include <utility>
 
 #include "config.h"
 #include "edr_event.h"
@@ -39,10 +41,88 @@ static void PutSubject(Event& event, const DataMap& data) {
     Put(event, data, L"SubjectUserSid", field::kSubjectUserSid);
 }
 
-/* Parse a FILETIME value as rendered by 4616 EventData: decimal digits or
- * hex with 0x prefix; accumulates uint64 with an overflow guard. */
+/* Capture complete Task Scheduler XML as UTF-8 text, without parsing or
+ * executing its embedded task document. The size contract is in UTF-8 bytes. */
+static void PutTaskContent(Event& event, const DataMap& data,
+                           const wchar_t* source) {
+    const auto found = data.find(source);
+    if (found == data.end() || found->second.empty()) {
+        event.fields[field::kTaskContentStatus] = "missing";
+        return;
+    }
+    const std::wstring& content = found->second;
+    if (content.size() > static_cast<size_t>(std::numeric_limits<int>::max())) {
+        event.fields[field::kTaskContentStatus] = "omitted_oversize";
+        return;
+    }
+    const int wideLength = static_cast<int>(content.size());
+    const int utf8Length = WideCharToMultiByte(
+        CP_UTF8, WC_ERR_INVALID_CHARS, content.data(), wideLength,
+        nullptr, 0, nullptr, nullptr);
+    if (utf8Length == 0) {
+        event.fields[field::kTaskContentStatus] = "invalid_encoding";
+        return;
+    }
+    if (utf8Length > 32768) {
+        event.fields[field::kTaskContentStatus] = "omitted_oversize";
+        return;
+    }
+    std::string utf8(static_cast<size_t>(utf8Length), '\0');
+    if (WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, content.data(),
+            wideLength, utf8.data(), utf8Length, nullptr, nullptr) != utf8Length) {
+        event.fields[field::kTaskContentStatus] = "invalid_encoding";
+        return;
+    }
+    event.fields[field::kTaskContent] = std::move(utf8);
+    event.fields[field::kTaskContentStatus] = "captured";
+}
+
+/* EvtRender renders win:FILETIME as UTC xs:dateTime. Validate before using
+ * the shared seven-digit converter: SystemTimeToFileTime can normalize a
+ * date such as February 30. Retain 100ns precision, truncating finer digits. */
+static bool ParseUtcFiletime(const std::wstring& text, uint64_t& out) {
+    if (text.size() < 20 || text.size() > 30 || text[4] != L'-' ||
+        text[7] != L'-' || text[10] != L'T' || text[13] != L':' ||
+        text[16] != L':' || text.back() != L'Z') return false;
+    auto number = [&](size_t offset, size_t count) {
+        int result = 0;
+        for (size_t i = offset; i < offset + count; ++i) {
+            if (text[i] < L'0' || text[i] > L'9') return -1;
+            result = result * 10 + static_cast<int>(text[i] - L'0');
+        }
+        return result;
+    };
+    const int year = number(0, 4), month = number(5, 2), day = number(8, 2);
+    const int hour = number(11, 2), minute = number(14, 2), second = number(17, 2);
+    if (year < 1601 || month < 1 || month > 12 || day < 1 || day > 31 ||
+        hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 ||
+        second > 59) return false;
+    std::wstring fraction(7, L'0');
+    if (text.size() != 20) {
+        if (text[19] != L'.' || text.size() < 22) return false;
+        const size_t digits = text.size() - 21;
+        for (size_t i = 0; i < digits; ++i) {
+            if (text[20 + i] < L'0' || text[20 + i] > L'9') return false;
+            if (i < 7) fraction[i] = text[20 + i];
+        }
+    }
+    SYSTEMTIME input{};
+    input.wYear = static_cast<WORD>(year); input.wMonth = static_cast<WORD>(month);
+    input.wDay = static_cast<WORD>(day); input.wHour = static_cast<WORD>(hour);
+    input.wMinute = static_cast<WORD>(minute); input.wSecond = static_cast<WORD>(second);
+    FILETIME ticks{};
+    SYSTEMTIME actual{};
+    if (!SystemTimeToFileTime(&input, &ticks) || !FileTimeToSystemTime(&ticks, &actual) ||
+        actual.wYear != input.wYear || actual.wMonth != input.wMonth ||
+        actual.wDay != input.wDay) return false;
+    out = ParseSystemTime100ns(text.substr(0, 19) + L"." + fraction + L"Z");
+    return true;
+}
+
+/* Numeric FILETIME is retained for previously accepted forwarded inputs. */
 static bool ParseFiletimeText(const std::wstring& text, uint64_t& out) {
     if (text.empty()) return false;
+    if (text.find(L'T') != std::wstring::npos) return ParseUtcFiletime(text, out);
     if (text.size() >= 2 && text[0] == L'0' &&
         (text[1] == L'x' || text[1] == L'X')) {
         const size_t start = 2;
@@ -96,11 +176,19 @@ bool ParseSecurityLogXml(const std::wstring& xml, Event& event) {
         id != 1102 && id != 1100 && id != 4722 && id != 4723 && id != 4724 &&
         id != 4725 && id != 4726 && id != 4740 && id != 4769 && id != 4768 &&
         id != 4616 && id != 4728 && id != 4732 && id != 4756 && id != 4719 &&
-        id != 1104)
+        id != 1104 && id != 4698 && id != 4702)
         return false;
+
+    uint64_t eventVersion = 0;
+    const std::wstring version = ElementText(xml, L"<Version>");
+    if (!version.empty()) ParseUnsigned(version, 255, eventVersion);
 
     event = Event{};
     DataMap data = EventData(xml);
+    if (id == 4698 || id == 4702) {
+        const auto taskName = data.find(L"TaskName");
+        if (taskName == data.end() || taskName->second.empty()) return false;
+    }
     event.source = "security_log";
     event.fields[field::kSource] = event.source;
     event.fields[field::kSecurityEventId] = std::to_string(id);
@@ -159,9 +247,12 @@ bool ParseSecurityLogXml(const std::wstring& xml, Event& event) {
     case 4672: {
         event.type = EDR_EVT_LOGON;
         event.fields[field::kOperationType] = "LOGON_ELEVATED";
-        Put(event, data, L"TargetUserName", field::kTargetUser);
-        Put(event, data, L"TargetDomainName", field::kTargetDomain);
-        Put(event, data, L"TargetLogonId", field::kLogonId);
+        // The session receiving these privileges is the native Subject.
+        // This event is a session assignment, not process privilege use.
+        Put(event, data, L"SubjectUserName", field::kTargetUser);
+        Put(event, data, L"SubjectDomainName", field::kTargetDomain);
+        Put(event, data, L"SubjectUserSid", field::kTargetUserSid);
+        Put(event, data, L"SubjectLogonId", field::kLogonId);
         event.fields[field::kElevatedToken] = "true";
         PutSubject(event, data);
         auto privIt = data.find(L"PrivilegeList");
@@ -276,10 +367,31 @@ bool ParseSecurityLogXml(const std::wstring& xml, Event& event) {
         event.type = EDR_EVT_SERVICE_INSTALL;
         event.fields[field::kOperationType] = "SERVICE_INSTALL";
         Put(event, data, L"ServiceName", field::kServiceName);
-        Put(event, data, L"ImagePath", field::kServiceImagePath);
+        Put(event, data, L"ServiceFileName", field::kServiceImagePath);
         Put(event, data, L"ServiceStartType", field::kServiceStartType);
         Put(event, data, L"ServiceAccount", field::kServiceAccount);
         PutSubject(event, data);
+        break;
+    }
+    case 4698:
+    case 4702: {
+        event.type = EDR_EVT_TASK_SCHEDULER;
+        event.fields[field::kOperationType] =
+            id == 4698 ? "TASK_REGISTERED" : "TASK_UPDATED";
+        Put(event, data, L"TaskName", field::kTaskName);
+        PutSubject(event, data);
+        Put(event, data, L"SubjectLogonId", field::kLogonId);
+        PutTaskContent(event, data,
+                       id == 4698 ? L"TaskContent" : L"TaskContentNew");
+        if (eventVersion == 1) {
+            Put(event, data, L"ClientProcessId", field::kTaskClientPid);
+            Put(event, data, L"ParentProcessId", field::kTaskClientParentPid);
+            Put(event, data, L"ClientProcessStartKey",
+                field::kTaskClientStartKey);
+            Put(event, data, L"RpcCallClientLocality",
+                field::kTaskRpcLocality);
+            Put(event, data, L"FQDN", field::kTaskClientFqdn);
+        }
         break;
     }
     case 1102: {
@@ -325,14 +437,22 @@ bool ParseSecurityLogXml(const std::wstring& xml, Event& event) {
         /* System audit policy was changed (T1562.002-adjacent): attackers
          * quiet specific audit categories before acting. */
         event.type = EDR_EVT_AUDIT_LOG;
+        event.fields[field::kOperationType] = "AUDIT_POLICY_CHANGED";
         event.fields[field::kAuditLogEventId] = "4719";
         PutSubject(event, data);
+        Put(event, data, L"SubjectLogonId", field::kLogonId);
+        Put(event, data, L"CategoryId", field::kAuditPolicyCategoryId);
+        Put(event, data, L"SubcategoryId", field::kAuditPolicySubcategoryId);
+        Put(event, data, L"SubcategoryGuid",
+            field::kAuditPolicySubcategoryGuid);
+        Put(event, data, L"AuditPolicyChanges", field::kAuditPolicyChanges);
         break;
     }
     case 1104: {
         /* The security log is now full: precursor to a clear or evidence of
          * unattended retention exhaustion. */
         event.type = EDR_EVT_AUDIT_LOG;
+        event.fields[field::kOperationType] = "SECURITY_LOG_FULL";
         event.fields[field::kAuditLogEventId] = "1104";
         break;
     }

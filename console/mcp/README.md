@@ -51,7 +51,7 @@ npm test           # node --test
 handlers against it. The point is drift detection: if a route is renamed, a
 parameter is changed, or an `exactKeys` allow-list tightens, this fails here
 rather than at runtime. The rule-coverage tests point `EDR_RULES_PATH` at the
-repository's real `rules/rules.json` so they exercise a populated 466-rule report.
+repository's real `rules/rules.json` so they exercise the current production rule catalog.
 
 ## Tools (25)
 

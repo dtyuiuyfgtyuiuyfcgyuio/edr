@@ -22,7 +22,7 @@
 #include "json_lite.h"
 #include "config.h"
 #include "quarantine_actions.h"
-#include "quarantine_test_paths.h"
+#include "windows_test_paths.h"
 
 namespace {
 
@@ -1257,7 +1257,7 @@ struct NativeTempTree {
 };
 
 NativeTempTree MakeNativeTempTree(const wchar_t* suffix) {
-    const std::wstring root = LongQuarantineTestTempPath() + L"edr-restore-" + suffix +
+    const std::wstring root = LongWindowsTestTempPath() + L"edr-restore-" + suffix +
         L"-" + std::to_wstring(GetCurrentProcessId()) + L"-" +
         std::to_wstring(GetTickCount64());
     NativeTempTree tree(root, root + L"\\source", root + L"\\quarantine",

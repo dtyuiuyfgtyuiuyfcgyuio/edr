@@ -210,7 +210,7 @@
 #include "response_server.h"
 #include "response_actions.h"
 #include "quarantine_actions.h"
-#include "quarantine_test_paths.h"
+#include "windows_test_paths.h"
 #include "health_heartbeat.h"
 #include "health_snapshot_tests.h"
 #include "telemetry_delivery_integration_tests.h"
@@ -6383,9 +6383,7 @@ static void AppendTestFile(const std::wstring& path, const char* data) {
 }
 
 static void TestStartupWatchCollector() {
-    wchar_t temp[MAX_PATH] = {};
-    CHECK(GetTempPathW(MAX_PATH, temp) != 0);
-    std::wstring root = std::wstring(temp) + L"edr_sw_" +
+    std::wstring root = LongWindowsTestTempPath() + L"edr_sw_" +
                         std::to_wstring(GetCurrentProcessId());
     /* The machine-scope path has no AppData\Roaming component; the
      * user-scope path mimics a per-profile startup folder. */
@@ -7864,7 +7862,7 @@ static DaclSnapshot CaptureDacl(const std::wstring& path) {
 }
 
 static void TestQuarantineSidecarCollisionRollback() {
-    std::wstring root = LongQuarantineTestTempPath() + L"edr-quarantine-rollback-" +
+    std::wstring root = LongWindowsTestTempPath() + L"edr-quarantine-rollback-" +
         std::to_wstring(GetCurrentProcessId());
     std::wstring sourceDir = root + L"\\source";
     std::wstring quarantineDir = root + L"\\quarantine";
@@ -7905,7 +7903,7 @@ static void TestQuarantineSidecarCollisionRollback() {
 }
 
 static void TestQuarantineControlledFile() {
-    std::wstring root = LongQuarantineTestTempPath() + L"edr-quarantine-test-" +
+    std::wstring root = LongWindowsTestTempPath() + L"edr-quarantine-test-" +
         std::to_wstring(GetCurrentProcessId());
     std::wstring sourceDir = root + L"\\source";
     std::wstring quarantineDir = root + L"\\quarantine";

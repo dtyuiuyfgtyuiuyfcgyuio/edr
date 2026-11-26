@@ -22,6 +22,7 @@
 #include "json_lite.h"
 #include "config.h"
 #include "quarantine_actions.h"
+#include "quarantine_test_paths.h"
 
 namespace {
 
@@ -1256,9 +1257,7 @@ struct NativeTempTree {
 };
 
 NativeTempTree MakeNativeTempTree(const wchar_t* suffix) {
-    wchar_t temp[MAX_PATH] = {};
-    QR_CHECK(GetTempPathW(MAX_PATH, temp) > 0);
-    const std::wstring root = std::wstring(temp) + L"edr-restore-" + suffix +
+    const std::wstring root = LongQuarantineTestTempPath() + L"edr-restore-" + suffix +
         L"-" + std::to_wstring(GetCurrentProcessId()) + L"-" +
         std::to_wstring(GetTickCount64());
     NativeTempTree tree(root, root + L"\\source", root + L"\\quarantine",
@@ -1357,8 +1356,11 @@ void TestNativeRestoreRoundTripAfterExecutorRestart(bool currentUserAcl) {
     std::string finalParent;
     DWORD parentError = ERROR_SUCCESS;
     const std::string sourceDirectory = edr::WideToUtf8(tree.sourceDir.c_str());
-    QR_CHECK(platform.OpenDirectoryNoFollow(sourceDirectory, parentDirectory,
-        parentInfo, finalParent, parentError));
+    if (!platform.OpenDirectoryNoFollow(sourceDirectory, parentDirectory,
+            parentInfo, finalParent, parentError)) {
+        throw std::runtime_error("native restore test could not open source directory: win32=" +
+            std::to_string(parentError));
+    }
     const std::wstring renamedSourceDir = tree.root + L"\\source-renamed";
     SetLastError(ERROR_SUCCESS);
     const BOOL parentRenameSucceeded = MoveFileExW(tree.sourceDir.c_str(),

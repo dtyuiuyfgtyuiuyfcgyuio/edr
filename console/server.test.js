@@ -375,6 +375,262 @@ test('raw event dedup is source scoped and PID reuse creates distinct process in
     assert.deepEqual(new Set(processes.map(process => process.pid)), new Set([900]));
 });
 
+const ingestFixtures = [
+    ['/ingest', 'alerts', { id: 'evt-1', rule: 'EDR-FIXTURE', severity: 'low', timestamp: '2026-07-30T10:00:00Z' }],
+    ['/ingest/falco', 'alerts', {
+        uuid: 'evt-1', time: '2026-07-30T10:00:00Z', rule: 'Fixture', priority: 'Warning',
+        source: 'syscall', hostname: 'fixture', tags: [], output: 'Fixture alert', output_fields: {},
+    }],
+    ['/ingest/events', 'events', {
+        eventId: 'evt-1', type: 'PROCESS_START', timestamp: '2026-07-30T10:00:00Z',
+        process_guid: 'fixture-process', pid: 42,
+    }],
+];
+
+for (const [route, ledger, payload] of ingestFixtures) {
+    test(`${route} retries an uncommitted record after storage recovers`, async t => {
+        const runtime = await fixture(t, { EDR_INGEST_API_KEY: 'sensor-key' });
+        const file = runtime.files[ledger];
+        const post = () => runtime.send(route, { method: 'POST', key: 'sensor-key', body: payload });
+        fs.mkdirSync(file);
+        assert.equal((await post()).status, 500);
+        assert.deepEqual(runtime.state[ledger], []);
+        assert.equal(runtime.state.processes.size, 0);
+        fs.rmdirSync(file);
+
+        const retry = await post();
+        assert.equal(retry.status, 200);
+        assert.equal(Boolean((await retry.json()).dedup), false);
+        const repeated = await post();
+        assert.equal(Boolean((await repeated.json()).dedup), true);
+        assert.equal(runtime.state[ledger].length, 1);
+        const lines = fs.readFileSync(file, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+        assert.equal(lines.length, 1);
+        assert.equal(lines[0].eventId ?? lines[0].id, 'evt-1');
+    });
+}
+
+test('event batch retry preserves its committed prefix after a partial write', async t => {
+    const runtime = await fixture(t);
+    const event = { type: 'PROCESS_START', timestamp: '2026-07-30T10:00:00Z' };
+    const events = ['evt-1', 'evt-2', 'evt-3'].map(eventId => ({ ...event, eventId }));
+    const post = () => runtime.send('/ingest/events', { method: 'POST', body: events });
+    const writeFileSync = fs.writeFileSync;
+    const fault = t.mock.method(fs, 'writeFileSync', (descriptor, data, options) => {
+        if (typeof descriptor === 'number' && String(data).includes('"eventId":"evt-2"')) {
+            writeFileSync(descriptor, '{"eventId":"evt-2",', options);
+            throw new Error('simulated partial write');
+        }
+        return writeFileSync(descriptor, data, options);
+    });
+
+    assert.equal((await post()).status, 500);
+    fault.mock.restore();
+    const storedIds = () => fs.readFileSync(runtime.files.events, 'utf8').trim().split('\n')
+        .map(line => JSON.parse(line).eventId);
+    assert.deepEqual(storedIds(), ['evt-1']);
+    assert.deepEqual(runtime.state.events.map(item => item.eventId), ['evt-1']);
+
+    const retry = await post();
+    assert.equal(retry.status, 200);
+    assert.deepEqual(await retry.json(), { ok: true, accepted: 2, dedup: 1 });
+    assert.deepEqual(storedIds(), ['evt-1', 'evt-2', 'evt-3']);
+});
+
+test('a failed sync rolls back the alert before a retry', async t => {
+    const runtime = await fixture(t);
+    const [, , body] = ingestFixtures[0];
+    const post = () => runtime.send('/ingest', { method: 'POST', body });
+    const sync = fs.fsyncSync;
+    let failed = false;
+    t.mock.method(fs, 'fsyncSync', descriptor => {
+        if (!failed) {
+            failed = true;
+            throw new Error('simulated sync failure');
+        }
+        return sync(descriptor);
+    });
+
+    assert.equal((await post()).status, 500);
+    assert.deepEqual(runtime.state.alerts, []);
+    assert.equal(fs.readFileSync(runtime.files.alerts, 'utf8'), '');
+    const retry = await post();
+    assert.equal(retry.status, 200);
+    assert.equal((await retry.json()).dedup, false);
+    assert.equal(fs.readFileSync(runtime.files.alerts, 'utf8').trim().split('\n').length, 1);
+});
+
+test('a close error after successful sync does not undo an ingest commit', async t => {
+    const runtime = await fixture(t);
+    const [, , body] = ingestFixtures[0];
+    const post = () => runtime.send('/ingest', { method: 'POST', body });
+    const sync = fs.fsyncSync;
+    const close = fs.closeSync;
+    let synced;
+    t.mock.method(fs, 'fsyncSync', descriptor => {
+        sync(descriptor);
+        synced = descriptor;
+    });
+    const closeFault = t.mock.method(fs, 'closeSync', descriptor => {
+        close(descriptor);
+        if (descriptor === synced) throw new Error('simulated close failure');
+    });
+
+    const committed = await post();
+    closeFault.mock.restore();
+    assert.equal(committed.status, 200);
+    assert.equal((await committed.json()).dedup, false);
+    assert.equal((await (await post()).json()).dedup, true);
+    assert.equal(runtime.state.alerts.length, 1);
+    assert.equal(fs.readFileSync(runtime.files.alerts, 'utf8').trim().split('\n').length, 1);
+});
+
+test('recent native and Falco alert commits survive restart deduplication', async t => {
+    const env = { EDR_INGEST_API_KEY: 'fixture-writer' };
+    const runtime = await fixture(t, env);
+    for (const [route, , body] of ingestFixtures.slice(0, 2)) {
+        const sent = await runtime.send(route, { method: 'POST', key: 'fixture-writer', body });
+        assert.equal((await sent.json()).dedup, false);
+    }
+
+    const restarted = await fixture(t, env, { dataDir: runtime.dataDir });
+    for (const [route, , body] of ingestFixtures.slice(0, 2)) {
+        const retry = await restarted.send(route, { method: 'POST', key: 'fixture-writer', body });
+        assert.equal((await retry.json()).dedup, true);
+    }
+    assert.equal(restarted.state.alerts.length, 2);
+    assert.equal(fs.readFileSync(restarted.files.alerts, 'utf8').trim().split('\n').length, 2);
+});
+
+test('event commits with a separate raw payload retain their identity after restart', async t => {
+    const runtime = await fixture(t);
+    const [, , event] = ingestFixtures[2];
+    const body = { ...event, raw: { detail: 'sensor-specific metadata' } };
+    const sent = await runtime.send('/ingest/events', { method: 'POST', body });
+    assert.deepEqual(await sent.json(), { ok: true, accepted: 1, dedup: 0 });
+
+    const restarted = await fixture(t, {}, { dataDir: runtime.dataDir });
+    assert.equal(restarted.state.events.length, 1);
+    assert.equal(restarted.state.events[0].eventId, 'evt-1');
+    assert.equal(restarted.state.events[0].processKey, 'local-unauthenticated:guid:fixture-process');
+    assert.deepEqual(restarted.state.events[0].raw, body.raw);
+    const retry = await restarted.send('/ingest/events', { method: 'POST', body });
+    assert.deepEqual(await retry.json(), { ok: true, accepted: 0, dedup: 1 });
+    assert.equal(fs.readFileSync(runtime.files.events, 'utf8').trim().split('\n').length, 1);
+});
+
+test('an ambiguous ingest tail is left for recovery and receives no more appends', async t => {
+    const runtime = await fixture(t);
+    const [, , body] = ingestFixtures[2];
+    const post = () => runtime.send('/ingest/events', { method: 'POST', body });
+    const writeFileSync = fs.writeFileSync;
+    const partial = '{"eventId":"evt-1",';
+    const writeFault = t.mock.method(fs, 'writeFileSync', descriptor => {
+        writeFileSync(descriptor, partial, 'utf8');
+        throw new Error('simulated partial write');
+    });
+    const truncateFault = t.mock.method(fs, 'ftruncateSync', () => {
+        throw new Error('simulated rollback failure');
+    });
+
+    const failed = await post();
+    writeFault.mock.restore();
+    truncateFault.mock.restore();
+    assert.equal(failed.status, 503);
+    assert.equal((await failed.json()).code, 'ledger_recovery_required');
+    assert.deepEqual(runtime.state.events, []);
+    assert.equal(fs.readFileSync(runtime.files.events, 'utf8'), partial);
+
+    const reopened = createRuntime({ dataDir: runtime.dataDir, env: {}, logger: quietLogger });
+    assert.deepEqual(reopened.state.events, []);
+    const retry = await post();
+    assert.equal(retry.status, 503);
+    await reopened.start(0, '127.0.0.1');
+    t.after(() => new Promise(resolve => reopened.server.close(resolve)));
+    const restartedRetry = await localHttpRequest(`http://127.0.0.1:${reopened.server.address().port}/ingest/events`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+    });
+    assert.equal(restartedRetry.status, 503);
+    assert.equal((await restartedRetry.json()).code, 'ledger_recovery_required');
+    assert.equal(fs.readFileSync(runtime.files.events, 'utf8'), partial);
+});
+
+test('ingest appends separately after a complete legacy record without a newline', async t => {
+    const runtime = await fixture(t);
+    const [, , body] = ingestFixtures[0];
+    fs.writeFileSync(runtime.files.alerts, JSON.stringify({ ...body, id: 'legacy' }));
+    const response = await runtime.send('/ingest', { method: 'POST', body });
+    assert.equal(response.status, 200);
+    const ids = fs.readFileSync(runtime.files.alerts, 'utf8').trim().split('\n').map(line => JSON.parse(line).id);
+    assert.deepEqual(ids, ['legacy', 'evt-1']);
+});
+
+test('rejected process metadata does not mark the event as received', async t => {
+    const runtime = await fixture(t);
+    const [, , body] = ingestFixtures[2];
+    const invalid = await runtime.send('/ingest/events', { method: 'POST', body: { ...body, image: {} } });
+    assert.equal(invalid.status, 400);
+    assert.deepEqual(runtime.state.events, []);
+    assert.equal(fs.existsSync(runtime.files.events), false);
+
+    const corrected = await runtime.send('/ingest/events', { method: 'POST', body: { ...body, image: 'fixture.exe' } });
+    assert.equal(corrected.status, 200);
+    assert.deepEqual(await corrected.json(), { ok: true, accepted: 1, dedup: 0 });
+    assert.equal(runtime.state.processes.values().next().value.image, 'fixture.exe');
+});
+
+test('startup restores recent alerts without loading the whole ledger', async t => {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'edr-large-ledger-'));
+    t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+    const [, , alert] = ingestFixtures[0];
+    const file = path.join(dataDir, 'alerts.jsonl');
+    fs.writeFileSync(file, `${JSON.stringify({ ...alert, id: 'outside-window' })}\n`);
+    const descriptor = fs.openSync(file, 'r+');
+    try {
+        const tail = Buffer.from(`\n${JSON.stringify({ ...alert, id: 'latest' })}\n`);
+        fs.writeSync(descriptor, tail, 0, tail.length, 64 * 1024 * 1024 + 128);
+    } finally {
+        fs.closeSync(descriptor);
+    }
+
+    const runtime = createRuntime({ dataDir, env: {}, logger: quietLogger });
+    assert.deepEqual(runtime.state.alerts.map(item => item.id), ['latest']);
+    assert.ok(fs.statSync(file).size > 64 * 1024 * 1024);
+});
+
+test('tail readers keep a complete record at the byte window boundary', async t => {
+    const runtime = await fixture(t);
+    const latest = '{"id":"latest"}\n';
+    fs.writeFileSync(runtime.files.alerts, `{"id":"previous"}\n${latest}`);
+    const options = { maxBytes: Buffer.byteLength(latest) };
+    assert.deepEqual(readJsonLinesTail(runtime.files.alerts, options).records, [{ id: 'latest' }]);
+    assert.deepEqual((await readJsonLinesTailAsync(runtime.files.alerts, options)).records, [{ id: 'latest' }]);
+});
+
+test('event window compaction removes expired processes and keeps surviving descendants', async t => {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'edr-process-window-'));
+    t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+    const event = { type: 'PROCESS_START', timestamp: '2026-07-30T10:00:00Z' };
+    const ledger = Array.from({ length: LIMITS.events }, (_, index) => JSON.stringify({
+        ...event, eventId: `evt-${index}`, sourceId: 'local-unauthenticated', process_guid: `p-${index}`,
+        parent_process_guid: index === LIMITS.events - 1 ? 'p-0' : undefined,
+    }));
+    fs.writeFileSync(path.join(dataDir, 'events.jsonl'), `${ledger.join('\n')}\n`);
+    const runtime = await fixture(t, {}, { dataDir });
+    assert.equal(runtime.state.processes.size, LIMITS.events);
+
+    const body = { ...event, eventId: 'newest', process_guid: 'newest' };
+    const response = await runtime.send('/ingest/events', { method: 'POST', body });
+    assert.deepEqual(await response.json(), { ok: true, accepted: 1, dedup: 0 });
+    const processes = runtime.state.processes;
+    assert.equal(processes.size, runtime.state.events.length);
+    assert.equal(processes.has('local-unauthenticated:guid:p-0'), false);
+    assert.equal(processes.has('local-unauthenticated:guid:newest'), true);
+    const tree = await (await runtime.send('/api/process-tree')).json();
+    const descendant = tree.find(node => node.processKey === `local-unauthenticated:guid:p-${LIMITS.events - 1}`);
+    assert.equal(descendant.parentProcessKey, 'local-unauthenticated:guid:p-0');
+});
+
 test('alert triage is admin-only, exact, durable, and reflected in alert statistics', async t => {
     const runtime = await fixture(t, {
         EDR_INGEST_API_KEY: 'sensor-key',

@@ -21,6 +21,7 @@
 #include "event_log_bookmark.h"
 #include "powershell_parser.h"
 #include "powershell_reassembler.h"
+#include "worker_thread_startup.h"
 
 namespace edr {
 
@@ -60,8 +61,13 @@ public:
         EVT_HANDLE bookmark = nullptr;
         m_bus.store(bus);
         m_stop.store(false);
-        for (uint32_t i = 0; i < m_workerCount; ++i)
-            m_workers.emplace_back(&PowerShellCollector::WorkerLoop, this);
+        if (!StartWorkerThreads(m_workers, m_workerCount,
+                [this](size_t) {
+                    return std::thread(&PowerShellCollector::WorkerLoop, this);
+                }, [this] { StopWorkers(); })) {
+            m_bus.store(nullptr);
+            return false;
+        }
 
         m_signalEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
         if (m_signalEvent == nullptr) {

@@ -28,6 +28,8 @@ const LIMITS = Object.freeze({
     string: 2048,
     output: 8192,
     rawBytes: 128 * 1024,
+    ingestLineBytes: 1024 * 1024,
+    startupLedgerBytes: 64 * 1024 * 1024,
     fields: 128,
     tags: 64,
     queryLimit: 1000,
@@ -41,6 +43,11 @@ const LIMITS = Object.freeze({
 });
 
 class ValidationError extends Error {}
+class IngestLedgerRecoveryError extends Error {
+    constructor(file, cause) {
+        super(`ingest ledger ${path.basename(file)} requires recovery`, { cause });
+    }
+}
 
 const TRIAGE_STATUSES = new Set(['new', 'investigating', 'resolved', 'false_positive']);
 const TRIAGE_PRIORITIES = new Set(['low', 'normal', 'high', 'urgent']);
@@ -322,6 +329,12 @@ function normalizePersistedAlert(input) {
     }
 }
 
+function alertFingerprint(alert) {
+    return crypto.createHash('sha256').update(JSON.stringify([
+        alert.sourceId, alert.id || '', alert.rule, alert.timestamp, alert.event,
+    ])).digest('hex');
+}
+
 function normalizeFalcoAlert(input, sourceId) {
     if (!isObject(input)) throw new ValidationError('Falco alert must be an object');
     const required = ['time', 'rule', 'priority', 'source', 'hostname', 'output', 'output_fields'];
@@ -390,6 +403,25 @@ function normalizeRawEvent(input, sourceId) {
     return { eventId, sourceId, type, timestamp, processKey, parentProcessKey, raw: boundedRaw(input.raw ?? input) };
 }
 
+function normalizePersistedEvent(stored) {
+    const sourceId = boundedString(stored.sourceId, 'sourceId', 256, true);
+    if (stored.raw === undefined || stored.eventId === undefined ||
+        stored.type === undefined || stored.timestamp === undefined) {
+        return normalizeRawEvent(stored.raw ?? stored, sourceId);
+    }
+    // The persisted envelope carries the identity. A sensor can supply raw
+    // metadata that omits the original event and process identifiers.
+    const event = normalizeRawEvent(stored, sourceId);
+    for (const field of ['processKey', 'parentProcessKey']) {
+        const key = boundedString(stored[field], field, 1024);
+        if (key && !key.startsWith(`${sourceId}:`)) {
+            throw new ValidationError(`${field} must belong to its event source`);
+        }
+        event[field] = key;
+    }
+    return event;
+}
+
 function appendJsonLineImpl(file, value) {
     if (path.basename(file) === 'audit.jsonl') {
         require('./audit_chain').appendChainedRecord(file, value);
@@ -401,6 +433,61 @@ function appendJsonLineImpl(file, value) {
         fs.fsyncSync(descriptor);
     } finally {
         fs.closeSync(descriptor);
+    }
+}
+
+function ingestRecordSeparator(descriptor, size, file) {
+    if (!size) return '';
+    const last = Buffer.alloc(1);
+    if (fs.readSync(descriptor, last, 0, 1, size - 1) !== 1) {
+        throw new IngestLedgerRecoveryError(file);
+    }
+    if (last[0] === 0x0a) return '';
+
+    // Older imported ledgers may end with a complete record and no newline.
+    const tail = Buffer.alloc(Math.min(size, LIMITS.ingestLineBytes + 1));
+    const count = fs.readSync(descriptor, tail, 0, tail.length, size - tail.length);
+    const separator = tail.lastIndexOf(0x0a);
+    if (count !== tail.length || (size > tail.length && separator < 0)) {
+        throw new IngestLedgerRecoveryError(file);
+    }
+    try {
+        const text = new TextDecoder('utf-8', { fatal: true }).decode(tail.subarray(separator + 1));
+        if (!isObject(JSON.parse(text))) throw new Error('ledger record must be an object');
+    } catch (error) {
+        throw new IngestLedgerRecoveryError(file, error);
+    }
+    return '\n';
+}
+
+function appendIngestRecord(file, value, logger) {
+    const descriptor = fs.openSync(file, 'a+', 0o600);
+    try {
+        const size = fs.fstatSync(descriptor).size;
+        const separator = ingestRecordSeparator(descriptor, size, file);
+        const line = `${separator}${JSON.stringify(value)}\n`;
+        try {
+            fs.writeFileSync(descriptor, line, 'utf8');
+            fs.fsyncSync(descriptor);
+        } catch (error) {
+            // The console is the sole writer of its ingest ledgers. Roll back
+            // this append before admitting another record through this runtime.
+            try {
+                fs.ftruncateSync(descriptor, size);
+                fs.fsyncSync(descriptor);
+            } catch (rollbackError) {
+                throw new IngestLedgerRecoveryError(file, rollbackError);
+            }
+            throw error;
+        }
+    } finally {
+        try {
+            fs.closeSync(descriptor);
+        } catch (error) {
+            // Sync decides the commit outcome. A close error must not hide a
+            // successful commit or overwrite the preceding write error.
+            logger.warn(`[edr-console] failed to close ingest ledger ${path.basename(file)}`, error.code);
+        }
     }
 }
 
@@ -459,10 +546,12 @@ function rejectDuplicateJsonKeys(text) {
 
 function readJsonLinesImpl(file, maxLines) {
     try {
-        if (!fs.existsSync(file)) return [];
-        return fs.readFileSync(file, 'utf8').split(/\r?\n/).filter(Boolean).slice(-maxLines).flatMap(line => {
-            try { return [JSON.parse(line)]; } catch (_) { return []; }
+        const { records } = readJsonLinesTailImpl(file, {
+            maxBytes: LIMITS.startupLedgerBytes,
+            maxLineBytes: LIMITS.ingestLineBytes,
+            maxRecords: maxLines,
         });
+        return records.reverse();
     } catch (_) {
         return [];
     }
@@ -499,22 +588,23 @@ function readJsonLinesTailImpl(file, options = {}) {
         const size = fs.fstatSync(descriptor).size;
         const bytesToRead = Math.min(size, maxBytes);
         const start = size - bytesToRead;
-        const buffer = Buffer.allocUnsafe(bytesToRead);
+        const prefixBytes = start > 0 ? 1 : 0;
+        const buffer = Buffer.allocUnsafe(bytesToRead + prefixBytes);
         let total = 0;
-        while (total < bytesToRead) {
+        while (total < buffer.length) {
             const count = fs.readSync(descriptor, buffer, total,
-                Math.min(bytesToRead - total, LIMITS.auditReadChunkBytes),
-                start + total);
+                Math.min(buffer.length - total, LIMITS.auditReadChunkBytes),
+                start - prefixBytes + total);
             if (count === 0) break;
             total += count;
         }
-        metadata.scanned_bytes = total;
-        metadata.window_truncated = start > 0 || total < bytesToRead;
-        const data = total === buffer.length ? buffer : buffer.subarray(0, total);
+        const data = buffer.subarray(prefixBytes, total);
+        metadata.scanned_bytes = data.length;
+        metadata.window_truncated = start > 0 || total < buffer.length;
         if (!data.length) return { records: [], ...metadata };
 
         let contentStart = 0;
-        if (start > 0) {
+        if (prefixBytes && buffer[0] !== 0x0a) {
             const newline = data.indexOf(0x0a);
             if (newline < 0) return { records: [], ...metadata };
             contentStart = newline + 1;
@@ -608,12 +698,13 @@ async function readJsonLinesTailAsyncImpl(file, options = {}) {
         const size = Number(before.size);
         const bytesToRead = Math.min(size, maxBytes);
         const start = size - bytesToRead;
-        const buffer = Buffer.allocUnsafe(bytesToRead);
+        const prefixBytes = start > 0 ? 1 : 0;
+        const buffer = Buffer.allocUnsafe(bytesToRead + prefixBytes);
         let total = 0;
         let chunksSinceYield = 0;
-        while (total < bytesToRead) {
-            const length = Math.min(bytesToRead - total, LIMITS.auditReadChunkBytes);
-            const { bytesRead } = await descriptor.read(buffer, total, length, start + total);
+        while (total < buffer.length) {
+            const length = Math.min(buffer.length - total, LIMITS.auditReadChunkBytes);
+            const { bytesRead } = await descriptor.read(buffer, total, length, start - prefixBytes + total);
             if (bytesRead === 0)
                 throw auditReadError('EDR_AUDIT_SHORT_READ', 'audit snapshot ended before its captured range');
             total += bytesRead;
@@ -629,13 +720,13 @@ async function readJsonLinesTailAsyncImpl(file, options = {}) {
         if (!sameAuditSnapshot(before, after) || !sameAuditSnapshot(before, named))
             throw auditReadError('EDR_AUDIT_SNAPSHOT_CHANGED', 'audit snapshot changed during read');
 
-        metadata.scanned_bytes = total;
+        const data = buffer.subarray(prefixBytes, total);
+        metadata.scanned_bytes = data.length;
         metadata.window_truncated = start > 0;
-        const data = total === buffer.length ? buffer : buffer.subarray(0, total);
         if (!data.length) return { records: [], ...metadata };
 
         let contentStart = 0;
-        if (start > 0) {
+        if (prefixBytes && buffer[0] !== 0x0a) {
             const newline = data.indexOf(0x0a);
             if (newline < 0) return { records: [], ...metadata };
             contentStart = newline + 1;
@@ -849,6 +940,16 @@ function createRuntime(options = {}) {
         }
     };
     const appendJsonLine = (file, value) => appendJsonLineImpl(withinDataDir(file), value);
+    const blockedIngestLedgers = new Set();
+    const persistIngest = (file, value) => {
+        if (blockedIngestLedgers.has(file)) throw new IngestLedgerRecoveryError(file);
+        try {
+            appendIngestRecord(withinDataDir(file), value, logger);
+        } catch (error) {
+            if (error instanceof IngestLedgerRecoveryError) blockedIngestLedgers.add(file);
+            throw error;
+        }
+    };
     const readJsonLines = (file, maxLines) => readJsonLinesImpl(withinDataDir(file), maxLines);
     const readJsonLinesTail = (file, options) => readJsonLinesTailImpl(withinDataDir(file), options);
     const readJsonLinesTailAsync = (file, options) => readJsonLinesTailAsyncImpl(withinDataDir(file), options);
@@ -859,7 +960,7 @@ function createRuntime(options = {}) {
         [path.join(dataDir, 'rules.json'),
          path.join(dataDir, '..', 'rules', 'rules.json')]
             .find(candidate => fs.existsSync(candidate)) || null;
-    let alerts = readJsonLines(files.alerts, LIMITS.alerts).map(normalizePersistedAlert).filter(Boolean);
+    let alerts = [];
     let events = [];
     const eventIds = new Map();
     const processes = new Map();
@@ -867,6 +968,15 @@ function createRuntime(options = {}) {
     const recentAlerts = new Map();
     const alertTriage = new Map();
     const triageHistory = [];
+
+    for (const stored of readJsonLines(files.alerts, LIMITS.alerts)) {
+        const alert = normalizePersistedAlert(stored);
+        if (!alert) continue;
+        alerts.push(alert);
+        // Preserve the fingerprint of the exact record written by ingestion,
+        // before normalization for querying (which can change field types).
+        recentAlerts.set(alertFingerprint(stored), true);
+    }
 
     for (const stored of readJsonLines(files.triage, LIMITS.triageEvents)) {
         try {
@@ -1009,22 +1119,24 @@ function createRuntime(options = {}) {
         });
     }
 
-    function addProcessEvent(event) {
-        if (!event.processKey) return;
-        let process = processes.get(event.processKey);
-        if (!process) {
-            const raw = event.raw;
-            process = {
-                processKey: event.processKey,
-                sourceId: event.sourceId,
-                parentProcessKey: event.parentProcessKey,
-                pid: boundedInteger(valueFrom(raw, ['pid', 'ProcessId']), 'pid'),
-                image: boundedString(valueFrom(raw, ['image', 'Image']), 'image', LIMITS.output),
-                commandLine: boundedString(valueFrom(raw, ['command_line', 'CommandLine']), 'command line', LIMITS.output),
-                startTime: boundedString(valueFrom(raw, ['start_time', 'startTime']), 'start time', 128) || event.timestamp,
-                lastSeen: event.timestamp,
-                eventCount: 0,
-            };
+    function newProcessRecord(event) {
+        const raw = event.raw;
+        return {
+            processKey: event.processKey,
+            sourceId: event.sourceId,
+            parentProcessKey: event.parentProcessKey,
+            pid: boundedInteger(valueFrom(raw, ['pid', 'ProcessId']), 'pid'),
+            image: boundedString(valueFrom(raw, ['image', 'Image']), 'image', LIMITS.output),
+            commandLine: boundedString(valueFrom(raw, ['command_line', 'CommandLine']), 'command line', LIMITS.output),
+            startTime: boundedString(valueFrom(raw, ['start_time', 'startTime']), 'start time', 128) || event.timestamp,
+            lastSeen: event.timestamp,
+            eventCount: 0,
+        };
+    }
+
+    function addProcessEvent(event, process) {
+        if (!process) return;
+        if (process.eventCount === 0) {
             processes.set(event.processKey, process);
         }
         process.lastSeen = event.timestamp;
@@ -1032,23 +1144,40 @@ function createRuntime(options = {}) {
         if (!process.parentProcessKey && event.parentProcessKey) process.parentProcessKey = event.parentProcessKey;
     }
 
+    function rebuildProcessIndex() {
+        processes.clear();
+        for (const event of events) {
+            if (!event.processKey) continue;
+            try {
+                addProcessEvent(event, processes.get(event.processKey) || newProcessRecord(event));
+            } catch (error) {
+                // A legacy event can have invalid metadata previously supplied
+                // by another event outside the retained window.
+                if (!(error instanceof ValidationError)) throw error;
+            }
+        }
+    }
+
     function addEvent(event, persist) {
         const dedupKey = `${event.sourceId}\u0000${event.eventId}`;
         if (eventIds.has(dedupKey)) return false;
+        const process = event.processKey && (processes.get(event.processKey) || newProcessRecord(event));
+        if (persist) persistIngest(files.events, event);
         eventIds.set(dedupKey, true);
         if (eventIds.size > LIMITS.dedupIds) eventIds.delete(eventIds.keys().next().value);
         events.push(event);
-        if (events.length > LIMITS.events) events = events.slice(-Math.floor(LIMITS.events / 2));
-        addProcessEvent(event);
-        if (persist) appendJsonLine(files.events, event);
+        if (events.length > LIMITS.events) {
+            events = events.slice(-Math.floor(LIMITS.events / 2));
+            rebuildProcessIndex();
+        } else {
+            addProcessEvent(event, process);
+        }
         return true;
     }
 
     for (const stored of readJsonLines(files.events, LIMITS.events)) {
         try {
-            const sourceId = boundedString(stored.sourceId, 'sourceId', 256, true);
-            const event = stored.raw ? normalizeRawEvent(stored.raw, sourceId) : normalizeRawEvent(stored, sourceId);
-            addEvent(event, false);
+            addEvent(normalizePersistedEvent(stored), false);
         } catch (_) {}
     }
 
@@ -1060,15 +1189,13 @@ function createRuntime(options = {}) {
     }
 
     function addAlert(alert) {
-        const fingerprint = crypto.createHash('sha256').update(JSON.stringify([
-            alert.sourceId, alert.id || '', alert.rule, alert.timestamp, alert.event,
-        ])).digest('hex');
+        const fingerprint = alertFingerprint(alert);
         if (recentAlerts.has(fingerprint)) return false;
+        persistIngest(files.alerts, alert);
         recentAlerts.set(fingerprint, true);
         if (recentAlerts.size > LIMITS.dedupIds) recentAlerts.delete(recentAlerts.keys().next().value);
         alerts.push(alert);
         if (alerts.length > LIMITS.alerts) alerts = alerts.slice(-Math.floor(LIMITS.alerts / 2));
-        appendJsonLine(files.alerts, alert);
         broadcast('alert', decorateAlert(alert));
         return true;
     }
@@ -3405,6 +3532,10 @@ function createRuntime(options = {}) {
 
     app.use((error, _req, res, _next) => {
         if (error instanceof ValidationError) return res.status(400).json({ error: error.message });
+        if (error instanceof IngestLedgerRecoveryError) {
+            logger.error('[edr-console] ingest stopped:', error.message);
+            return res.status(503).json({ error: 'ingest ledger requires recovery', code: 'ledger_recovery_required' });
+        }
         if (error instanceof LedgerQueryBusyError) {
             return res.status(503).set('Retry-After', '1').json({
                 error: 'ledger query capacity is busy', code: 'ledger_query_busy',

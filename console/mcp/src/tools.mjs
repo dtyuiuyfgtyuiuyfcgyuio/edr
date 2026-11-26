@@ -36,9 +36,7 @@ const pagination = {
   },
   offset: {
     type: "integer",
-    description:
-      "Record offset. Note: /api/alerts counts from the newest end, while " +
-      "/api/incidents sorts newest-first but slices from the oldest end.",
+    description: "Zero-based offset into the result set.",
     minimum: 0,
   },
 };
@@ -256,7 +254,12 @@ export const TOOLS = [
         q: { type: "string", maxLength: 256 },
         min_score: { type: "integer", minimum: 0, maximum: 100 },
         limit: { ...pagination.limit, default: 50 },
-        offset: pagination.offset,
+        offset: {
+          ...pagination.offset,
+          description:
+            "Zero-based offset into the incident list. Results are newest-first; " +
+            "offset 0 returns the newest incident.",
+        },
       },
     },
   },
@@ -603,13 +606,12 @@ export function buildHandlers(client) {
       });
       const result = await readIntegrity("/api/incidents", { query });
       if (result.unavailable) return result;
-      // The route sorts newest-first but slices from the tail (server.js:2022-2023),
-      // so offset 0 yields the OLDEST page. Say so rather than hide it.
+      // The route sorts newest-first and applies the offset from the front.
       return {
         ...result,
         paginationNote:
-          "incidents are sorted newest-first but sliced from the oldest end; " +
-          "offset 0 returns the oldest records in the filtered set.",
+          "incidents are sorted newest-first; offset 0 returns the newest records, " +
+          "and increasing offset moves older.",
         data: result.data,
       };
     },

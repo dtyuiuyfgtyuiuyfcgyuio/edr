@@ -1,14 +1,80 @@
-#include <windows.h>
 #include <atomic>
 #include <condition_variable>
 #include <iostream>
 #include <mutex>
 #include <stdexcept>
+#include <system_error>
+#include <thread>
+#include <vector>
 #include "event_bus.h"
+#include "worker_thread_startup.h"
 
 namespace {
 void Check(bool value) {
     if (!value) throw std::runtime_error("event consumption acknowledgment failed");
+}
+
+void TestWorkerThreadStartupRollback() {
+    for (const size_t failAt : {size_t{0}, size_t{2}}) {
+        std::vector<std::thread> workers;
+        std::mutex mutex;
+        std::condition_variable cv;
+        std::atomic<bool> stopping{false};
+        std::atomic<int> started{0};
+        std::atomic<int> exited{0};
+        size_t attempts = 0;
+
+        const bool startedAll = edr::StartWorkerThreads(workers, 4,
+            [&](size_t) {
+                const size_t attempt = attempts++;
+                if (attempt == failAt)
+                    throw std::system_error(std::make_error_code(
+                        std::errc::resource_unavailable_try_again));
+                return std::thread([&] {
+                    ++started;
+                    std::unique_lock<std::mutex> lock(mutex);
+                    cv.wait(lock, [&] { return stopping.load(); });
+                    ++exited;
+                });
+            }, [&] {
+                stopping.store(true);
+                cv.notify_all();
+                for (auto& worker : workers)
+                    if (worker.joinable()) worker.join();
+                workers.clear();
+            });
+
+        Check(!startedAll);
+        Check(workers.empty());
+        Check(started == static_cast<int>(failAt));
+        Check(exited == static_cast<int>(failAt));
+
+        stopping.store(false);
+        attempts = 0;
+        const bool restarted = edr::StartWorkerThreads(workers, 2,
+            [&](size_t) {
+                ++attempts;
+                return std::thread([&] {
+                    ++started;
+                    std::unique_lock<std::mutex> lock(mutex);
+                    cv.wait(lock, [&] { return stopping.load(); });
+                    ++exited;
+                });
+            }, [&] {
+                stopping.store(true);
+                cv.notify_all();
+                for (auto& worker : workers)
+                    if (worker.joinable()) worker.join();
+                workers.clear();
+            });
+        Check(restarted && workers.size() == 2 && attempts == 2);
+        stopping.store(true);
+        cv.notify_all();
+        for (auto& worker : workers)
+            if (worker.joinable()) worker.join();
+        workers.clear();
+        Check(exited == started);
+    }
 }
 class Sink final : public edr::ISink {
 public:
@@ -26,6 +92,7 @@ public:
     bool throws = false;
 };
 void Run() {
+    TestWorkerThreadStartupRollback();
     edr::EventBus bus(1);
     std::atomic<int> lost{0}, accepted{0};
     edr::Event first;

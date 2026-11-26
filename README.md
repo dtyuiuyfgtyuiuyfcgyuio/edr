@@ -66,11 +66,19 @@ node console\server.js
 npm test --prefix console
 ```
 
+控制台状态目录应由单个控制台实例写入。事件和告警写入并同步到 JSONL 后才更新查询和去重索引。若接收端返回 `ledger_recovery_required`，先停止该实例并备份账本，再根据最后一条已确认记录恢复账本尾部。重启后可重试原始数据。
+
+启动时，控制台从告警、事件和分诊账本各读取最多 64 MiB 的尾部记录，历史 JSONL 保留在磁盘。进程查询和进程树的索引随内存中的事件窗口更新。
+
 ## 驱动与打包
 
 安装 WDK 后，在独立构建目录使用 `-DEDR_DRIVER_FEATURES=ALL`，构建 `edrdrv` 目标。首次签署驱动、证书管理和测试虚拟机准备由部署者完成；不要提交 PFX 或私钥。使用 [打包脚本](packaging/windows/build_installer.ps1) 传入已签署 SYS、公开 CER、Node LICENSE、VC143 CRT 目录和 Inno Setup 6.7.3 编译器。
 
+管理员安装、重启、真实遥测与可选驱动的验收步骤见 [Windows 发布验收记录](packaging/windows/release_verification.md)。
+
 ## 验证与发布范围
+
+开发分支的 Windows 构建与测试见 [CI 门禁](.github/workflows/edr-ci.yml)，规则告警基线及覆盖率采集步骤见 [质量验证说明](docs/RULE_LINT_AND_CPP_COVERAGE.md)。
 
 2026-10-21 独立发布副本验收：完整 CTest 69 项通过、1 项权限跳过、0 失败；控制台 202/202；五组产品开关及脱敏自测通过。新版安装包完成文件安装、修复、卸载及数据保留验证，676 个默认文件哈希、安装版 Node/鉴权/规则读取和代理自测通过。管理员服务安装、SYSTEM 开机启动、真实驱动加载和 Driver Verifier 尚未实测。
 

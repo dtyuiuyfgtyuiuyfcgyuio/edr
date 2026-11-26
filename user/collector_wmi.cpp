@@ -16,6 +16,7 @@
 #include "config.h"
 #include "edr_event.h"
 #include "event_log_bookmark.h"
+#include "worker_thread_startup.h"
 #include "wmi_parser.h"
 
 namespace edr {
@@ -45,8 +46,12 @@ public:
         EVT_HANDLE bookmark = nullptr;
         m_bus.store(bus);
         m_stop.store(false);
-        for (uint32_t i = 0; i < m_workerCount; ++i) {
-            m_workers.emplace_back(&WmiCollector::WorkerLoop, this);
+        if (!StartWorkerThreads(m_workers, m_workerCount,
+                [this](size_t) {
+                    return std::thread(&WmiCollector::WorkerLoop, this);
+                }, [this] { StopWorkers(); })) {
+            m_bus.store(nullptr);
+            return false;
         }
 
         m_signalEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);

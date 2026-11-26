@@ -408,6 +408,129 @@ void TestQueueRejectionStillEvaluatesAndBlocksLaterBookmarkCommit() {
     TDI_CHECK(status.lastCommittedRecordId == 10);
 }
 
+void TestRestartReplaysRejectedRecordAndCommitsAfterSuccessfulDelivery() {
+    Fixture fixture;
+    fixture.WriteRules();
+    auto fake = std::make_shared<FakeWinEvt>();
+    std::atomic<unsigned> replayAlerts{0};
+    {
+        auto firstStore = MakeStore(fixture, fake);
+
+        /* Establish a durable prior bookmark so the rejected record can be
+         * replayed from the exact same source position after restart. */
+        edr::EventLogBookmarkStore::Token baseline = 0;
+        TDI_CHECK(firstStore->Capture(fake->AddEvent(40), baseline));
+        TDI_CHECK(firstStore->Complete(baseline, true));
+        TDI_CHECK(firstStore->GetStatus().lastCommittedRecordId == 40);
+
+        edr::RuleEngine firstRules;
+        firstRules.LoadFromFile(Utf8(fixture.RulesPath()));
+        firstRules.SetAlertCallback([&](const edr::Alert& alert) {
+            if (alert.event != nullptr && alert.event->pid == 411) ++replayAlerts;
+        });
+        std::atomic<unsigned> rejectedPostCalls{0};
+        edr::Reporter rejectingReporter("https://collector.test/ingest", "", 0,
+            [&](const std::string&) {
+                ++rejectedPostCalls;
+                return true;
+            });
+        TDI_CHECK(rejectingReporter.Start());
+
+        Receipts firstReceipts;
+        DeliverySink firstSink(&rejectingReporter, &firstRules);
+        edr::EventBus firstBus(4);
+        edr::Event rejected = MakeEvent(411, "receipt-probe.exe");
+        AttachToken(rejected, firstStore, fake, 41);
+        const auto firstCallback = rejected.onConsumed;
+        rejected.onConsumed = [&firstReceipts, callback = firstCallback](bool ok) {
+            callback(ok);
+            firstReceipts.Record(ok);
+        };
+
+        firstBus.Start(&firstSink);
+        TDI_CHECK(firstBus.Push(rejected));
+        TDI_CHECK(firstReceipts.WaitFor(1));
+        firstBus.Stop();
+        rejectingReporter.Stop();
+
+        TDI_CHECK(!firstReceipts.Result(0));
+        TDI_CHECK(replayAlerts.load() == 1);
+        TDI_CHECK(rejectingReporter.DroppedCount() == 1);
+        TDI_CHECK(rejectedPostCalls.load() == 0);
+        const auto rejectedStatus = firstStore->GetStatus();
+        TDI_CHECK(rejectedStatus.state == edr::EventLogBookmarkStore::State::Gap);
+        TDI_CHECK(rejectedStatus.lastCommittedRecordId == 40);
+        /* Leaving this scope destroys the rejected event, its callback-held
+         * store reference, the bus, and then the store before restart. */
+    }
+
+    /* Reopen from the on-disk checkpoint as a new process would. The
+     * subscription must resume after record 40, allowing record 41 to replay. */
+    auto replayStore = MakeStore(fixture, fake);
+    DWORD flags = 0;
+    EVT_HANDLE bookmark = nullptr;
+    TDI_CHECK(replayStore->PrepareSubscription(flags, bookmark));
+    TDI_CHECK(flags == (EvtSubscribeStartAfterBookmark | EvtSubscribeStrict));
+    TDI_CHECK(bookmark != nullptr);
+    fake->Api().close(bookmark);
+    TDI_CHECK(replayStore->GetStatus().lastCommittedRecordId == 40);
+
+    {
+        edr::RuleEngine replayRules;
+        replayRules.LoadFromFile(Utf8(fixture.RulesPath()));
+        replayRules.SetAlertCallback([&](const edr::Alert& alert) {
+            if (alert.event != nullptr && alert.event->pid == 411) ++replayAlerts;
+        });
+        std::mutex postMutex;
+        std::condition_variable postCv;
+        unsigned successfulPosts = 0;
+        edr::Reporter acceptingReporter("https://collector.test/ingest", "", 4,
+            [&](const std::string& body) {
+                TDI_CHECK(body.find("receipt-probe.exe") != std::string::npos);
+                {
+                    std::lock_guard<std::mutex> lock(postMutex);
+                    ++successfulPosts;
+                }
+                postCv.notify_all();
+                return true;
+            });
+        TDI_CHECK(acceptingReporter.Start());
+
+        Receipts replayReceipts;
+        DeliverySink replaySink(&acceptingReporter, &replayRules);
+        edr::EventBus replayBus(4);
+        edr::Event replayed = MakeEvent(411, "receipt-probe.exe");
+        AttachToken(replayed, replayStore, fake, 41);
+        const auto replayCallback = replayed.onConsumed;
+        replayed.onConsumed = [&replayReceipts, callback = replayCallback](bool ok) {
+            callback(ok);
+            replayReceipts.Record(ok);
+        };
+
+        replayBus.Start(&replaySink);
+        TDI_CHECK(replayBus.Push(replayed));
+        TDI_CHECK(replayReceipts.WaitFor(1));
+        replayBus.Stop();
+        {
+            std::unique_lock<std::mutex> lock(postMutex);
+            TDI_CHECK(postCv.wait_for(lock, std::chrono::seconds(5), [&] {
+                return successfulPosts == 1;
+            }));
+        }
+        acceptingReporter.Stop();
+
+        TDI_CHECK(replayReceipts.Result(0));
+        TDI_CHECK(acceptingReporter.DroppedCount() == 0);
+    }
+
+    TDI_CHECK(replayAlerts.load() == 2);
+    const auto replayStatus = replayStore->GetStatus();
+    TDI_CHECK(replayStatus.state == edr::EventLogBookmarkStore::State::Ready);
+    TDI_CHECK(replayStatus.pending == 0);
+    TDI_CHECK(replayStatus.lastCommittedRecordId == 41);
+    /* No AutoResponder or native response handler is created in this test. */
+}
+
 void TestThrowingRuleCallbackMakesNegativeReceiptAfterQueueAcceptance() {
     Fixture fixture;
     fixture.WriteRules();
@@ -487,6 +610,7 @@ void TestFailedReporterStartIsRetainedAsNegativeSourceReceipt() {
 void RunTelemetryDeliveryIntegrationTests() {
     TestAcceptedLocalSpoolCommitsGroupedReportOnlyReceipt();
     TestQueueRejectionStillEvaluatesAndBlocksLaterBookmarkCommit();
+    TestRestartReplaysRejectedRecordAndCommitsAfterSuccessfulDelivery();
     TestThrowingRuleCallbackMakesNegativeReceiptAfterQueueAcceptance();
     TestFailedReporterStartIsRetainedAsNegativeSourceReceipt();
 }

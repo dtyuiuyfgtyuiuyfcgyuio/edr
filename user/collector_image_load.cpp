@@ -26,6 +26,7 @@
 #include "config.h"
 #include "edr_event.h"
 #include "event_bus.h"
+#include "worker_thread_startup.h"
 
 #pragma comment(lib, "tdh.lib")
 #pragma comment(lib, "advapi32.lib")
@@ -59,8 +60,15 @@ public:
             return false;
         }
 
-        for (uint32_t i = 0; i < 2; ++i) {
-            m_workers.emplace_back(&ImageLoadCollector::WorkerLoop, this);
+        if (!StartWorkerThreads(m_workers, 2,
+                [this](size_t) {
+                    return std::thread(&ImageLoadCollector::WorkerLoop, this);
+                }, [this] { StopWorkers(); })) {
+            CloseTrace(m_traceHandle);
+            m_traceHandle = 0;
+            StopEtwSession();
+            m_bus.store(nullptr);
+            return false;
         }
 
         try {

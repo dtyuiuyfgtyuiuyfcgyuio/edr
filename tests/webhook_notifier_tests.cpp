@@ -9,11 +9,14 @@
 #include <condition_variable>
 #include <cstdint>
 #include <cstdio>
+#include <functional>
+#include <io.h>
 #include <mutex>
 #include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
+#include <windows.h>
 
 #include "json_lite.h"
 #include "webhook_notifier.h"
@@ -37,6 +40,47 @@ bool WaitFor(const Pred& pred, int timeoutMs) {
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
     return pred();
+}
+
+std::string CaptureStderr(const std::function<void()>& action) {
+    wchar_t directory[MAX_PATH] = {};
+    wchar_t filename[MAX_PATH] = {};
+    const DWORD length = GetTempPathW(MAX_PATH, directory);
+    if (length == 0 || length >= MAX_PATH || !GetTempFileNameW(directory, L"edr", 0, filename)) {
+        throw std::runtime_error("could not create a temporary stderr capture path");
+    }
+    FILE* capture = nullptr;
+    if (_wfopen_s(&capture, filename, L"w+bD") != 0 || capture == nullptr) {
+        DeleteFileW(filename);
+        throw std::runtime_error("could not open temporary stderr capture");
+    }
+    std::fflush(stderr);
+    const int saved = _dup(_fileno(stderr));
+    if (saved < 0 || _dup2(_fileno(capture), _fileno(stderr)) != 0) {
+        if (saved >= 0) _close(saved);
+        std::fclose(capture);
+        throw std::runtime_error("redirecting stderr failed");
+    }
+    try {
+        action();
+    } catch (...) {
+        std::fflush(stderr);
+        _dup2(saved, _fileno(stderr));
+        _close(saved);
+        std::fclose(capture);
+        throw;
+    }
+    std::fflush(stderr);
+    _dup2(saved, _fileno(stderr));
+    _close(saved);
+    std::rewind(capture);
+    std::string output;
+    char buffer[512];
+    size_t count = 0;
+    while ((count = std::fread(buffer, 1, sizeof(buffer), capture)) != 0)
+        output.append(buffer, count);
+    std::fclose(capture);
+    return output;
 }
 
 struct RecordedCall {
@@ -287,6 +331,57 @@ void RunWebhookNotifierTests() {
         WH_CHECK(WaitFor([&] { return notifier.FailedCount() == 3; }, 5000));
         WH_CHECK(notifier.DeliveredCount() == 0);
         WH_CHECK(notifier.QueuedCount() == 0);
+    }
+    std::fprintf(stderr, "[webhook] TestSlowTransportQueueByteObservation\n");
+    {
+        TransportState state;
+        state.useGate = true;
+        edr::WebhookNotifier notifier(true, "http://collector.local/hook", 5,
+                                      3, MakeTransport(&state));
+        notifier.Notify("{\"marker\":0}");
+        WH_CHECK(WaitFor([&] { return state.entered.load() >= 1; }, 5000));
+        const std::vector<std::string> alerts = {
+            "{\"marker\":1,\"detail\":\"a\"}",
+            "{\"marker\":2,\"detail\":\"longer synthetic payload\"}",
+            "{\"marker\":3,\"detail\":\"b\"}",
+            "{\"marker\":4,\"detail\":\"newest\"}",
+        };
+        for (const auto& alert : alerts) notifier.Notify(alert);
+        const size_t retainedBytes =
+            edr::WebhookNotifier::BuildEnvelope(alerts[1]).size() +
+            edr::WebhookNotifier::BuildEnvelope(alerts[2]).size() +
+            edr::WebhookNotifier::BuildEnvelope(alerts[3]).size();
+        WH_CHECK(notifier.QueuedCount() == 3);
+        WH_CHECK(notifier.DroppedCount() == 1);
+        WH_CHECK(notifier.QueuedBytes() == retainedBytes);
+        {
+            std::lock_guard<std::mutex> lock(state.gateMutex);
+            state.gateOpen.store(true);
+        }
+        state.gateCv.notify_all();
+        WH_CHECK(WaitFor([&] { return notifier.DeliveredCount() == 4; }, 5000));
+        WH_CHECK(WaitFor([&] { return notifier.QueuedBytes() == 0; }, 5000));
+    }
+    std::fprintf(stderr, "[webhook] TestFailureLogOmitsUrlAndTransportText\n");
+    for (const bool throws : {false, true}) {
+        const std::string url =
+            "https://synthetic-user:synthetic-pass@hooks.invalid/path?token=synthetic-token";
+        const std::string output = CaptureStderr([&] {
+            edr::WebhookNotifier notifier(true, url, 5, 16,
+                [throws](const std::string&, const std::string&, const std::string&,
+                         uint32_t, std::string* err) {
+                    if (throws) throw std::runtime_error("synthetic transport detail synthetic-token");
+                    if (err) *err = "synthetic transport detail synthetic-token";
+                    return false;
+                });
+            notifier.Notify("{}");
+            WH_CHECK(WaitFor([&] { return notifier.FailedCount() == 1; }, 5000));
+        });
+        WH_CHECK(output.find("synthetic-user") == std::string::npos);
+        WH_CHECK(output.find("synthetic-pass") == std::string::npos);
+        WH_CHECK(output.find("synthetic-token") == std::string::npos);
+        WH_CHECK(output.find("transport detail") == std::string::npos);
+        WH_CHECK(output.find("delivery failed") != std::string::npos);
     }
     std::fprintf(stderr, "[webhook] TestDestructorFlushesQueue\n");
     {

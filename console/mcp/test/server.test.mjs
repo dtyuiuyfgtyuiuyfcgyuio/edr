@@ -103,7 +103,7 @@ async function fixture(t, extraEnv = {}) {
 
   const baseUrl = `http://127.0.0.1:${runtime.server.address().port}`;
   const client = new ConsoleClient({ baseUrl, apiKey: READ_KEY, timeoutMs: 5000 });
-  return { runtime, client, handlers: buildHandlers(client), baseUrl };
+  return { runtime, client, handlers: buildHandlers(client), baseUrl, dataDir };
 }
 
 test("initialize lists only read-role tools", async (t) => {
@@ -219,6 +219,30 @@ test("incident routes survive a missing ledger and surface integrity", async (t)
   const list = await handlers.edr_list_incidents({ limit: 10 });
   assert.equal(list.unavailable, false);
   assert.match(list.paginationNote, /sorted newest-first/);
+});
+
+test("list_incidents paginates newest-first and describes the real offset order", async (t) => {
+  const { handlers, dataDir } = await fixture(t);
+  fs.writeFileSync(
+    path.join(dataDir, "incidents.jsonl"),
+    [
+      { id: "oldest", kind: "open", lastSeen100ns: 1 },
+      { id: "middle", kind: "open", lastSeen100ns: 2 },
+      { id: "newest", kind: "open", lastSeen100ns: 3 },
+    ].map((record) => JSON.stringify(record)).join("\n") + "\n",
+    "utf8",
+  );
+
+  const first = await handlers.edr_list_incidents({ limit: 1, offset: 0 });
+  const second = await handlers.edr_list_incidents({ limit: 1, offset: 1 });
+
+  assert.equal(first.data.total, 3);
+  assert.equal(first.data.incidents[0].id, "newest");
+  assert.equal(second.data.incidents[0].id, "middle");
+  assert.match(first.paginationNote, /offset 0 returns the newest records/i);
+
+  const listTool = TOOLS.find((tool) => tool.name === "edr_list_incidents");
+  assert.match(listTool.inputSchema.properties.offset.description, /offset 0.*newest/i);
 });
 
 test("incident summary sends no query parameters", async (t) => {

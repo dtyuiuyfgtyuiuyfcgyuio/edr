@@ -201,6 +201,11 @@ size_t WebhookNotifier::QueuedCount() const {
     return m_queue.size();
 }
 
+size_t WebhookNotifier::QueuedBytes() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_queuedBytes;
+}
+
 void WebhookNotifier::Notify(const std::string& alertJson) {
     if (!m_enabled || m_url.empty()) return; /* silent no-op per contract */
     /* Envelope is built on the caller thread (cheap string work only) so the
@@ -216,10 +221,13 @@ void WebhookNotifier::Notify(const std::string& alertJson) {
         if (m_queue.size() >= m_capacity) {
             /* House drop semantics (EventBus::Push / Reporter::Enqueue):
              * evict the stalest item, always admit the newest. */
+            m_queuedBytes -= m_queue.front().size();
             m_queue.pop_front();
             m_dropped.fetch_add(1);
         }
+        const size_t envelopeBytes = envelope.size();
         m_queue.push_back(std::move(envelope));
+        m_queuedBytes += envelopeBytes;
     }
     m_cv.notify_one();
 }
@@ -244,15 +252,16 @@ std::string WebhookNotifier::BuildEnvelope(const std::string& alertJson) {
     return envelope;
 }
 
-void WebhookNotifier::LogFailure(const std::string& err) {
+void WebhookNotifier::LogFailure() {
     const uint64_t nowMs = SteadyNowMs();
     uint64_t last = m_lastFailLogMs.load(std::memory_order_relaxed);
     /* 0 sentinel = never logged yet (steady clock may read < interval right
      * after boot, so the sentinel is checked explicitly). */
     if (last != 0 && nowMs - last < kFailureLogIntervalMs) return;
     if (!m_lastFailLogMs.compare_exchange_strong(last, nowMs)) return;
-    std::fprintf(stderr, "[webhook] delivery failed (url=%s): %s\n",
-                 m_url.c_str(), err.c_str());
+    /* URLs and transport diagnostics can contain credentials or attacker
+     * controlled text. Keep this operational message intentionally generic. */
+    std::fprintf(stderr, "[webhook] delivery failed\n");
 }
 
 void WebhookNotifier::WorkerLoop() {
@@ -275,11 +284,13 @@ void WebhookNotifier::WorkerLoop() {
                      * honest (these were never delivered). */
                     m_dropped.fetch_add(m_queue.size());
                     m_queue.clear();
+                    m_queuedBytes = 0;
                     return;
                 }
             } else if (m_queue.empty()) {
                 continue;
             }
+            m_queuedBytes -= m_queue.front().size();
             envelope = std::move(m_queue.front());
             m_queue.pop_front();
         }
@@ -288,19 +299,15 @@ void WebhookNotifier::WorkerLoop() {
         std::string err;
         try {
             ok = m_transport(m_url, kContentType, envelope, m_timeoutMs, &err);
-        } catch (const std::exception& e) {
-            ok = false;
-            err = std::string("transport exception: ") + e.what();
         } catch (...) {
             ok = false;
-            err = "transport exception";
         }
         if (ok) {
             m_delivered.fetch_add(1);
         } else {
             /* No retry by design: count, log (rate limited), move on. */
             m_failed.fetch_add(1);
-            LogFailure(err);
+            LogFailure();
         }
     }
 }

@@ -25,7 +25,8 @@
  *    Reporter::Enqueue (newest always wins; stalest item is sacrificed).
  *
  *  - NO RETRY, by explicit decision. A failed POST is counted in FailedCount
- *    and logged (rate limited) once; the notification is not re-queued.
+ *    and logged as a generic, rate-limited diagnostic; URLs and transport
+ *    error text are never written to stderr. The notification is not re-queued.
  *    Local retry would duplicate alerts after ambiguous timeouts and hide
  *    outages from the operator; downstream consumers should reconcile
  *    against the console-side alert ledger (alerts.jsonl / /api/alerts)
@@ -95,6 +96,9 @@ public:
     size_t DeliveredCount() const { return m_delivered.load(); }
     size_t FailedCount() const { return m_failed.load(); }
     size_t QueuedCount() const;
+    /* Bytes in queued envelopes only; excludes the in-flight request. This
+     * is an observation for capacity assessment, not a memory ceiling. */
+    size_t QueuedBytes() const;
 
     /* Builds the outbound envelope (pure, independently testable):
      *   {"kind":"alert","source":"edr-agent","host":"<computer name>",
@@ -109,7 +113,7 @@ public:
 
 private:
     void WorkerLoop();
-    void LogFailure(const std::string& err);
+    void LogFailure();
 
     bool m_enabled;
     std::string m_url;
@@ -120,6 +124,7 @@ private:
     mutable std::mutex m_mutex;
     std::condition_variable m_cv;
     std::deque<std::string> m_queue;
+    size_t m_queuedBytes = 0;
     std::thread m_thread;
     std::atomic<bool> m_stop{false};
 

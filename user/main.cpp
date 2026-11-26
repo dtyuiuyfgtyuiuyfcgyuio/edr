@@ -1884,8 +1884,7 @@ public:
             m_webhookNotifier = std::make_unique<WebhookNotifier>(
                 cfg.webhookEnable, cfg.webhookUrl, cfg.webhookTimeoutSeconds,
                 cfg.webhookQueueCapacity);
-            std::fprintf(stderr, "[edr] webhook notifier armed (%s, timeout=%us, queue capacity=%zu)\n",
-                         cfg.webhookUrl.c_str(),
+            std::fprintf(stderr, "[edr] webhook notifier armed (timeout=%us, queue capacity=%zu)\n",
                          static_cast<unsigned>(cfg.webhookTimeoutSeconds),
                          cfg.webhookQueueCapacity);
         }

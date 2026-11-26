@@ -100,11 +100,11 @@ reason from it. The chain has no external trusted anchor — anyone with write
 access to the JSONL can recompute or truncate it — so `edr_audit_chain_verify`
 is the only check available, and it only proves internal consistency.
 
-**`/api/incidents` pagination is inverted.** Incidents are sorted newest-first
-(`incidents.js:194`) but the route slices from the tail without reversing
-(`server.js:2022-2023`), so `offset=0` returns the **oldest** page. `/api/alerts`
-does reverse and behaves the conventional way. `edr_list_incidents` returns a
-`paginationNote` saying so rather than papering over it.
+**Incident pagination is newest-first.** The console sorts incidents by
+`lastSeen100ns` descending (`incidents.js:204-210`) and applies `offset` from
+the beginning of that list (`server.js:2353-2367`), so `offset=0` returns the
+newest page and increasing the offset moves to older incidents. The MCP tool
+returns this ordering in `paginationNote`.
 
 **`/api/process-tree` takes no parameters** and returns every root unfiltered.
 `edr_process_tree` filters by `source_id` client-side and says so in its `note`.

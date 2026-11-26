@@ -1,0 +1,242 @@
+name: Windows and Node CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: edr-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-native:
+    name: Windows x64 native tests and Node gates
+    if: github.ref != 'refs/tags/v1.4.2026.1126'
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python for required CTest registration
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: console/package-lock.json
+
+      - name: Install console dependencies
+        run: npm ci --prefix console --ignore-scripts
+
+      - name: Configure, build, and test with MSVC
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          if (-not (Test-Path $vswhere)) { throw "vswhere.exe not found: $vswhere" }
+          $vsPath = & $vswhere -latest -products '*' -version '[17.0,18.0)' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1
+          if (-not $vsPath) { throw 'Visual Studio 2022 with the x64 C++ toolset was not found.' }
+          $vsPath = $vsPath.Trim()
+          $vcvarsall = Join-Path $vsPath 'VC/Auxiliary/Build/vcvarsall.bat'
+          if (-not (Test-Path $vcvarsall)) { throw "MSVC environment script not found: $vcvarsall" }
+          if (-not (Get-Command cmake -ErrorAction SilentlyContinue)) { throw 'CMake is not on PATH.' }
+          if (-not (Get-Command ninja -ErrorAction SilentlyContinue)) { throw 'Ninja is not on PATH.' }
+
+          $buildDir = Join-Path $env:GITHUB_WORKSPACE 'build-ci'
+          $testList = Join-Path $env:RUNNER_TEMP 'ctest-list.txt'
+          $testLog = Join-Path $env:RUNNER_TEMP 'ctest.log'
+          $junit = Join-Path $env:RUNNER_TEMP 'ctest-junit.xml'
+          $batchFile = Join-Path $env:RUNNER_TEMP 'edr-native-ci.cmd'
+          @"
+          @echo off
+          call "$vcvarsall" x64 10.0.22621.0
+          if errorlevel 1 exit /b 1
+          where cl.exe
+          if errorlevel 1 exit /b 3
+          if not exist "%WindowsSdkDir%Include\10.0.22621.0\um" exit /b 4
+          echo Visual Studio environment: %VSCMD_VER%
+          echo MSVC toolset: %VCToolsVersion%
+          echo Windows SDK: %WindowsSDKVersion%
+          cmake -S "$env:GITHUB_WORKSPACE" -B "$buildDir" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_SYSTEM_VERSION=10.0.22621.0 -DEDR_IMONITOR=OFF -DBUILD_TESTING=ON
+          if errorlevel 1 exit /b 1
+          ctest --test-dir "$buildDir" -N > "$testList"
+          if errorlevel 1 exit /b 1
+          findstr /C:"edr_triage_cli_tests" "$testList" >nul
+          if errorlevel 1 exit /b 2
+          cmake --build "$buildDir" --parallel 4
+          if errorlevel 1 exit /b 1
+          ctest --test-dir "$buildDir" --verbose --output-on-failure --output-junit "$junit" > "$testLog" 2>&1
+          exit /b %errorlevel%
+          "@ | Set-Content -Path $batchFile -Encoding ascii
+
+          & cmd.exe /d /c "call `"$batchFile`""
+          $nativeExit = $LASTEXITCODE
+          Get-Content $testLog -ErrorAction SilentlyContinue | Write-Host
+          if ($nativeExit -ne 0) { throw "MSVC configure/build/CTest failed with exit code $nativeExit." }
+
+          if (-not (Test-Path $junit)) { throw 'CTest did not produce its JUnit report.' }
+          [xml]$report = Get-Content $junit -Raw
+          $skips = @($report.SelectNodes('//testcase[skipped]'))
+          $unexpectedSkips = @($skips | Where-Object { $_.name -ne 'edr_quarantine_restore_native_tests' })
+          if ($unexpectedSkips.Count -gt 0 -or $skips.Count -gt 1) {
+            $names = ($skips | ForEach-Object { $_.name }) -join ', '
+            throw "Unexpected CTest skip(s): $names"
+          }
+          if ($skips.Count -eq 1) {
+            $ctestOutput = Get-Content $testLog -Raw
+            $skipReason = 'requires LocalSystem or an enabled Administrators token for the production SYSTEM/Administrators-only quarantine ACL'
+            if ($ctestOutput -notmatch [regex]::Escape('requires LocalSystem or an enabled Administrators token')) {
+              throw 'The permitted native quarantine skip did not report its expected privilege reason.'
+            }
+            $message = "Allowed skip: edr_quarantine_restore_native_tests — $skipReason (see CTest artifact for full reason)."
+            Write-Host $message
+            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $message
+          } else {
+            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value 'CTest completed with no skipped tests.'
+          }
+
+      - name: Check rule warning baseline
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not (Test-Path 'scripts/check_rule_lint_baseline.py')) {
+            throw 'Rule lint warning baseline checker is required but missing.'
+          }
+          if (-not (Test-Path 'scripts/rule_lint_warning_baseline.json')) {
+            throw 'Rule lint warning baseline is required but missing.'
+          }
+          if (-not (Test-Path 'scripts/test_rule_lint_baseline.py')) {
+            throw 'Rule lint warning baseline tests are required but missing.'
+          }
+          python scripts/test_rule_lint_baseline.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/check_rule_lint_baseline.py --baseline scripts/rule_lint_warning_baseline.json -- build-ci/edr_rule_lint.exe rules/rules.json --json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Collect report-only C++ coverage
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          try {
+          choco install opencppcoverage --version=0.9.9.0 --yes --no-progress
+          if ($LASTEXITCODE -ne 0) { throw "OpenCppCoverage installation failed with exit code $LASTEXITCODE." }
+          $coverageCandidates = @()
+          $coverageCommand = Get-Command OpenCppCoverage.exe -ErrorAction SilentlyContinue
+          if ($coverageCommand) { $coverageCandidates += $coverageCommand.Source }
+          $coverageCandidates += (Join-Path $env:ProgramFiles 'OpenCppCoverage/OpenCppCoverage.exe')
+          $coverageCandidates += (Join-Path $env:ProgramData 'chocolatey/lib/opencppcoverage/tools/OpenCppCoverage.exe')
+          $coverageExe = $coverageCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $coverageExe) { throw 'Pinned OpenCppCoverage executable was not found in PATH, Program Files, or Chocolatey package tools.' }
+          Write-Host "Coverage tool: $coverageExe"
+          $env:Path = "$(Split-Path $coverageExe);$env:Path"
+
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          $vsPath = & $vswhere -latest -products '*' -version '[17.0,18.0)' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1
+          if (-not $vsPath) { throw 'Visual Studio 2022 with the x64 C++ toolset was not found for the coverage build.' }
+          $vsPath = $vsPath.Trim()
+          $vcvarsall = Join-Path $vsPath 'VC/Auxiliary/Build/vcvarsall.bat'
+          $buildDir = Join-Path $env:GITHUB_WORKSPACE 'build-ci-coverage'
+          $coverageDir = Join-Path $env:RUNNER_TEMP 'edr-cpp-coverage'
+          $batchFile = Join-Path $env:RUNNER_TEMP 'edr-coverage-ci.cmd'
+          @"
+          @echo off
+          call "$vcvarsall" x64 10.0.22621.0
+          if errorlevel 1 exit /b 1
+          where cl.exe
+          if errorlevel 1 exit /b 3
+          if not exist "%WindowsSdkDir%Include\10.0.22621.0\um" exit /b 4
+          cmake -S "$env:GITHUB_WORKSPACE" -B "$buildDir" -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_SYSTEM_VERSION=10.0.22621.0 -DEDR_IMONITOR=OFF -DBUILD_TESTING=ON
+          if errorlevel 1 exit /b 1
+          cmake --build "$buildDir" --target edr_native_tests --parallel 4
+          if errorlevel 1 exit /b 1
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$env:GITHUB_WORKSPACE/scripts/collect_cpp_coverage.ps1" -BuildDirectory "$buildDir" -OutputDirectory "$coverageDir"
+          exit /b %errorlevel%
+          "@ | Set-Content -Path $batchFile -Encoding ascii
+          & cmd.exe /d /c "call `"$batchFile`""
+          if ($LASTEXITCODE -ne 0) { throw "C++ coverage report step failed with exit code $LASTEXITCODE." }
+          $coverageMessage = "C++ coverage outcome: report generated at $coverageDir; this observation does not gate the build."
+          Write-Host $coverageMessage
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $coverageMessage
+          } catch {
+            $coverageMessage = "C++ coverage outcome: report-only collection failed: $($_.Exception.Message)"
+            Write-Warning $coverageMessage
+            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $coverageMessage
+            throw
+          }
+
+      - name: Run console, MCP, Syslog, and HTML checks
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          npm test --prefix console
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm test --prefix console/mcp
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --test scripts/syslog_verify_receiver.test.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node console/check_html_js.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload CTest logs and results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-ctest-results
+          path: |
+            ${{ runner.temp }}/ctest.log
+            ${{ runner.temp }}/ctest-junit.xml
+            ${{ runner.temp }}/ctest-list.txt
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload report-only C++ coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-cpp-coverage
+          path: ${{ runner.temp }}/edr-cpp-coverage/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  publish-source-preview:
+    name: Publish v1.4.2026.1126 source preview
+    if: github.event_name == 'push' && github.ref == 'refs/tags/v1.4.2026.1126'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Check out source tag
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Verify branch CI and publish the prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          release_commit=$(git rev-parse HEAD)
+          ci_url=$(gh api --method GET "repos/$GH_REPO/actions/runs" \
+            -f branch='release/1.4.2026.1126' \
+            -f head_sha="$release_commit" -f event=push -f status=success \
+            --jq '[.workflow_runs[] | select(.path == ".github/workflows/edr-ci.yml") | .html_url] | first // empty')
+          test -n "$ci_url"
+          notes=$(mktemp)
+          cp docs/RELEASE_1.4.2026.1126.md "$notes"
+          printf '\n[Windows and Node CI run](%s)\n' "$ci_url" >> "$notes"
+          gh release create "$RELEASE_TAG" --verify-tag --prerelease --latest=false \
+            --title "EDR $RELEASE_TAG · 源码预览" --notes-file "$notes"

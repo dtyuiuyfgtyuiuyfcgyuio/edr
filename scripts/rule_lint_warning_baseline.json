@@ -1,0 +1,120 @@
+{
+  "version": 1,
+  "warnings": [
+    {
+      "rule_id": "EDR-003-KILL",
+      "code": "legacy_id",
+      "reason": "rules/rules.json preserves this event rule ID in its comments; tests/rule_engine_reload_tests.cpp:164-170 asserts the loaded alert retains this exact ID. Renaming would break downstream rule identity."
+    },
+    {
+      "rule_id": "EDR-031",
+      "code": "bad_mitre",
+      "reason": "Rule matches amsi_verdict=detected and supplies no ATT&CK fields. The rule has no source-backed mapping; assigning a tactic/technique from the event name would be inference."
+    },
+    {
+      "rule_id": "EDR-081",
+      "code": "bad_mitre",
+      "reason": "Rule explicitly stores empty mitre_attack and mitre_tactic arrays. Its comment describes behavior-chain score logging but gives no ATT&CK mapping."
+    },
+    {
+      "rule_id": "EDR-095",
+      "code": "bad_mitre",
+      "reason": "Rule explicitly stores empty ATT&CK arrays and describes first-seen FIM baseline as informational. No technique mapping is specified."
+    },
+    {
+      "rule_id": "EDR-135",
+      "code": "bad_mitre",
+      "reason": "Rule explicitly stores empty ATT&CK arrays. Its behavior-enrichment comment describes user-writable path evidence without naming an ATT&CK mapping."
+    },
+    {
+      "rule_id": "EDR-151",
+      "code": "band_leak",
+      "reason": "Rule comment documents opt-in C2 score and tuning behavior; user/c2_beacon_detector.cpp computes min(100, repeatCount*20), so 50..54 is unreachable from this producer. Existing broad regex also admits valid low scores; changing it would alter rule behavior beyond the lint overlap."
+    },
+    {
+      "rule_id": "EDR-152",
+      "code": "band_leak",
+      "reason": "Rule comment documents opt-in file-burst scoring. user/ransom_burst_detector.cpp writes min(100, state.count), so integer scores 50..54 are reachable. This is an intentionally broad detector score range; no supported narrower threshold is documented."
+    },
+    {
+      "rule_id": "EDR-243",
+      "code": "band_leak",
+      "reason": "The rule comment explicitly documents the intentional legacy 20..100 score band; EDR-244 covers 10..19. Keep the range and avoid changing score thresholds."
+    },
+    {
+      "rule_id": "EDR-245",
+      "code": "band_leak",
+      "reason": "Rule comment documents score=min(100, destCount*scorePerDest), with scorePerDest supplied by configuration. tests/lateral_movement_detector_tests.cpp:127-128 verifies score 50 for a configured 25-point increment; 50..54 is reachable."
+    },
+    {
+      "rule_id": "EDR-252",
+      "code": "band_leak",
+      "reason": "user/password_spray_detector.cpp computes min(90, users*10 + failures*2); 50, 52, and 54 are reachable integer results when its correlation conditions qualify. No narrower documented floor is available."
+    },
+    {
+      "rule_id": "EDR-254",
+      "code": "band_leak",
+      "reason": "user/kerberoast_detector.cpp computes min(100, distinct_service_count*15); 50..54 is unreachable for the current producer, and tests/kerberoast_detector_tests.cpp:113 verifies score 45. Existing rule accepts every generated score from this producer; leave broad range until score quantization is an explicit rule contract."
+    },
+    {
+      "rule_id": "EDR-257",
+      "code": "band_leak",
+      "reason": "user/ransom_precursor_detector.cpp computes min(100, distinct_technique_count*35), making 50..54 unreachable; tests/ransom_precursor_detector_tests.cpp:97-99 verifies score 70. Existing regex accepts the generated 70/100 values. Avoid encoding a new discrete-score contract in rules without an explicit requirement."
+    },
+    {
+      "rule_id": "EDR-294",
+      "code": "band_leak",
+      "reason": "The rule comment explicitly documents the intended 20..100 band and user/port_scan_detector.cpp computes min(100, portCount*4); scores 52 and 100 are covered by tests/native_tests.cpp:5311-5318. Keep the 20+ range."
+    },
+    {
+      "rule_id": "EDR-314B",
+      "code": "legacy_id",
+      "reason": "tests/native_tests.cpp:5411-5414 asserts this rule ID for guest-agent events; tests/rule_lint_tests.cpp:121 includes it among IDs that retain compatibility. Preserve the existing ID."
+    },
+    {
+      "rule_id": "EDR-383",
+      "code": "bad_mitre",
+      "reason": "Rule explicitly stores empty mitre_attack and mitre_tactic arrays. The PE anomaly score comment documents score thresholds but does not identify an ATT&CK mapping."
+    },
+    {
+      "rule_id": "EDR-462",
+      "code": "band_leak",
+      "reason": "Rule comment explicitly defines 25 or more failures as the sustained-guessing threshold, and the detector writes the failure count capped at 100. Scores 50..54 are valid and intended; changing to 55+ would violate the documented threshold."
+    },
+    {
+      "rule_id": "EDR-530",
+      "code": "bad_mitre",
+      "reason": "Rule describes Security event 1104 as audit availability evidence and supplies no ATT&CK mapping. No technique/tactic is specified in rule comments or fields."
+    },
+    {
+      "rule_id": "EDR-531",
+      "code": "bad_mitre",
+      "reason": "Rule describes Sysmon service state transitions as sensor evidence and supplies no ATT&CK mapping. No technique/tactic is specified in rule comments or fields."
+    },
+    {
+      "rule_id": "EDR-533",
+      "code": "bad_mitre",
+      "reason": "Rule describes Sysmon internal sensor errors and explicitly cautions that they do not prove tampering; it supplies no ATT&CK mapping."
+    },
+    {
+      "rule_id": "SF-001",
+      "code": "bad_mitre",
+      "reason": "SilverFox family confidence alert has empty ATT&CK arrays. No technique mapping is specified for this family-level finding."
+    },
+    {
+      "rule_id": "SF-002",
+      "code": "bad_mitre",
+      "reason": "SilverFox family confidence alert has empty ATT&CK arrays. No technique mapping is specified for this family-level finding."
+    },
+    {
+      "rule_id": "SF-004",
+      "code": "bad_mitre",
+      "reason": "Verified hash/certificate/network IOC family alert has empty ATT&CK arrays. The rule does not identify a technique or tactic."
+    },
+    {
+      "rule_id": "SF-010",
+      "code": "bad_mitre",
+      "reason": "SilverFox family evidence-count alert has empty ATT&CK arrays. No technique mapping is specified for this family-level finding."
+    }
+  ]
+}

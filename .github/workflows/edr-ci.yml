@@ -37,6 +37,19 @@ jobs:
       - name: Install console dependencies
         run: npm ci --prefix console --ignore-scripts
 
+      - name: Run console, MCP, Syslog, and HTML checks
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          npm test --prefix console
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm test --prefix console/mcp
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --test scripts/syslog_verify_receiver.test.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node console/check_html_js.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Configure, build, and test with MSVC
         shell: pwsh
         run: |
@@ -122,6 +135,27 @@ jobs:
           python scripts/check_rule_lint_baseline.py --baseline scripts/rule_lint_warning_baseline.json -- build-ci/edr_rule_lint.exe rules/rules.json --json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Upload CTest logs and results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-ctest-results
+          path: |
+            ${{ runner.temp }}/ctest.log
+            ${{ runner.temp }}/ctest-junit.xml
+            ${{ runner.temp }}/ctest-list.txt
+          if-no-files-found: ignore
+          retention-days: 14
+
+  windows-coverage:
+    name: Optional Windows C++ coverage
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
       - name: Collect report-only C++ coverage
         continue-on-error: true
         shell: pwsh
@@ -173,31 +207,6 @@ jobs:
             Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $coverageMessage
             throw
           }
-
-      - name: Run console, MCP, Syslog, and HTML checks
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          npm test --prefix console
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          npm test --prefix console/mcp
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          node --test scripts/syslog_verify_receiver.test.js
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          node console/check_html_js.js
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - name: Upload CTest logs and results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-ctest-results
-          path: |
-            ${{ runner.temp }}/ctest.log
-            ${{ runner.temp }}/ctest-junit.xml
-            ${{ runner.temp }}/ctest-list.txt
-          if-no-files-found: ignore
-          retention-days: 14
 
       - name: Upload report-only C++ coverage
         if: always()

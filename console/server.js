@@ -461,13 +461,23 @@ function ingestRecordSeparator(descriptor, size, file) {
 }
 
 function appendIngestRecord(file, value, logger) {
-    const descriptor = fs.openSync(file, 'a+', 0o600);
+    // Windows append-only handles cannot truncate a failed append. Open for
+    // random access and write at the saved EOF under the single-writer rule.
+    const { O_RDWR, O_CREAT } = fs.constants;
+    const descriptor = fs.openSync(file, O_RDWR | O_CREAT, 0o600);
     try {
-        const size = fs.fstatSync(descriptor).size;
+        const info = fs.fstatSync(descriptor);
+        if (!info.isFile()) throw new Error('ingest ledger must be a regular file');
+        const size = info.size;
         const separator = ingestRecordSeparator(descriptor, size, file);
-        const line = `${separator}${JSON.stringify(value)}\n`;
+        const line = Buffer.from(`${separator}${JSON.stringify(value)}\n`);
         try {
-            fs.writeFileSync(descriptor, line, 'utf8');
+            let offset = 0;
+            while (offset < line.length) {
+                const count = fs.writeSync(descriptor, line, offset, line.length - offset, size + offset);
+                if (count === 0) throw new Error('ingest ledger write made no progress');
+                offset += count;
+            }
             fs.fsyncSync(descriptor);
         } catch (error) {
             // The console is the sole writer of its ingest ledgers. Roll back

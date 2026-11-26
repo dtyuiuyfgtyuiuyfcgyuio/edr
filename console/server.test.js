@@ -415,13 +415,13 @@ test('event batch retry preserves its committed prefix after a partial write', a
     const event = { type: 'PROCESS_START', timestamp: '2026-07-30T10:00:00Z' };
     const events = ['evt-1', 'evt-2', 'evt-3'].map(eventId => ({ ...event, eventId }));
     const post = () => runtime.send('/ingest/events', { method: 'POST', body: events });
-    const writeFileSync = fs.writeFileSync;
-    const fault = t.mock.method(fs, 'writeFileSync', (descriptor, data, options) => {
-        if (typeof descriptor === 'number' && String(data).includes('"eventId":"evt-2"')) {
-            writeFileSync(descriptor, '{"eventId":"evt-2",', options);
+    const writeSync = fs.writeSync;
+    const fault = t.mock.method(fs, 'writeSync', (descriptor, data, offset, length, position) => {
+        if (Buffer.isBuffer(data) && data.includes('"eventId":"evt-2"')) {
+            if (offset === 0) return writeSync(descriptor, data, offset, 18, position);
             throw new Error('simulated partial write');
         }
-        return writeFileSync(descriptor, data, options);
+        return writeSync(descriptor, data, offset, length, position);
     });
 
     assert.equal((await post()).status, 500);
@@ -523,10 +523,11 @@ test('an ambiguous ingest tail is left for recovery and receives no more appends
     const runtime = await fixture(t);
     const [, , body] = ingestFixtures[2];
     const post = () => runtime.send('/ingest/events', { method: 'POST', body });
-    const writeFileSync = fs.writeFileSync;
+    const writeSync = fs.writeSync;
     const partial = '{"eventId":"evt-1",';
-    const writeFault = t.mock.method(fs, 'writeFileSync', descriptor => {
-        writeFileSync(descriptor, partial, 'utf8');
+    const writeFault = t.mock.method(fs, 'writeSync', (descriptor, _data, _offset, _length, position) => {
+        const bytes = Buffer.from(partial);
+        writeSync(descriptor, bytes, 0, bytes.length, position);
         throw new Error('simulated partial write');
     });
     const truncateFault = t.mock.method(fs, 'ftruncateSync', () => {

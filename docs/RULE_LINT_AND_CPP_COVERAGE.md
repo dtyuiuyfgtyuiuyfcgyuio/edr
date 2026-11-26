@@ -40,7 +40,7 @@ ctest --test-dir build-ci-coverage -N
   -OutputDirectory "$env:RUNNER_TEMP\edr-cpp-coverage"
 ```
 
-The report is observational: do not set a coverage threshold or make its result a merge gate until the Windows runner has produced and reviewed real reports. Store outputs under `RUNNER_TEMP` and upload them as a CI artifact; do not commit generated XML/HTML.
+The report is observational. The Windows workflow collects it in a separate job on manual runs. The job uploads XML and HTML from `RUNNER_TEMP` as a CI artifact. The build and test gates run on their normal schedule.
 
 ## Portable Linux coverage probe
 

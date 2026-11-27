@@ -1,0 +1,179 @@
+name: Windows release package
+
+on:
+  push:
+    tags: ['v*']
+    branches: ['release/1.4.2026.1126']
+    paths:
+      - '.github/workflows/windows-release.yml'
+      - 'packaging/windows/build_release_package.ps1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      tag: ${{ steps.source.outputs.tag }}
+      version: ${{ steps.source.outputs.version }}
+      commit: ${{ steps.source.outputs.commit }}
+      ci_url: ${{ steps.source.outputs.ci_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Resolve and verify package sources
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          driver_base=244fea98bbe139694e42a2a69aff82dd136647c4
+          ci_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            tag="$GITHUB_REF_NAME"
+          else
+            tag=v1.4.2026.1126
+            ci_run=45844891431
+            ci_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$ci_run"
+          fi
+          [[ "$tag" =~ ^v[0-9]{1,5}(\.[0-9]{1,5}){3}$ ]]
+          commit=$(git rev-parse "refs/tags/$tag^{commit}")
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            [[ "$commit" == "$(git rev-parse HEAD)" ]]
+          else
+            gh api "repos/$GH_REPO/actions/runs/$ci_run" |
+              jq -e --arg commit "$commit" '.conclusion == "success" and .head_sha == $commit' >/dev/null
+            gh release view "$tag" --json isDraft,isPrerelease |
+              jq -e '.isPrerelease and (.isDraft | not)' >/dev/null
+          fi
+          if ! git diff --quiet "$driver_base" "$commit" -- driver common cmake; then
+            echo 'Supply a verified matching signed driver for the changed kernel source or ABI.' >&2
+            exit 1
+          fi
+          printf 'tag=%s\nversion=%s\ncommit=%s\nci_url=%s\n' "$tag" "${tag#v}" "$commit" "$ci_url" >> "$GITHUB_OUTPUT"
+
+  ci:
+    if: github.ref_type == 'tag'
+    uses: ./.github/workflows/edr-ci.yml
+
+  package:
+    name: Build and smoke-test offline installer
+    needs: resolve
+    runs-on: windows-2022
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: automation
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.commit }}
+          path: release-source
+          persist-credentials: false
+      - name: Build and verify Windows package
+        env:
+          SOURCE_COMMIT: ${{ needs.resolve.outputs.commit }}
+          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+        shell: pwsh
+        run: |
+          ./automation/packaging/windows/build_release_package.ps1 `
+            -SourceDir (Join-Path $env:GITHUB_WORKSPACE 'release-source') `
+            -SourceCommit $env:SOURCE_COMMIT -Version $env:RELEASE_VERSION `
+            -OutputDir (Join-Path $env:RUNNER_TEMP 'release-package') `
+            -WorkDir (Join-Path $env:RUNNER_TEMP 'package-work')
+      - name: Upload verified deliverables
+        uses: actions/upload-artifact@v4
+        with:
+          name: edr-windows-x64-release
+          path: ${{ runner.temp }}/release-package/
+          if-no-files-found: error
+      - name: Upload isolated installer verification logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-validation-logs
+          path: ${{ runner.temp }}/package-work/verification-*.log
+          if-no-files-found: ignore
+
+  publish:
+    name: Publish the matching installer and source
+    needs: [resolve, ci, package]
+    if: always() && needs.resolve.result == 'success' && needs.package.result == 'success' && (needs.ci.result == 'success' || (github.ref_type == 'branch' && needs.ci.result == 'skipped'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: edr-windows-x64-release
+          path: package
+      - name: Verify and publish release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+          SOURCE_COMMIT: ${{ needs.resolve.outputs.commit }}
+          CI_URL: ${{ needs.resolve.outputs.ci_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == "$SOURCE_COMMIT" ]]
+          version="${RELEASE_TAG#v}"
+          installer="EDR-Setup-$version-x64.exe"
+          proof=package/EDR-release-verification.json
+          jq -e --arg version "$version" --arg commit "$SOURCE_COMMIT" --arg installer "$installer" \
+            '.version == $version and .source_commit == $commit and .installer == $installer and .package_tests == "passed" and .staging_install_repair_uninstall == "passed" and .installed_smoke.consoleAuthentication' "$proof" >/dev/null
+          (cd package && tr -d '\r' < SHA256SUMS.txt | sha256sum --check --strict -)
+          [[ "$(sha256sum "package/$installer" | cut -d' ' -f1)" == "$(jq -r .installer_sha256 "$proof")" ]]
+          assets=("$installer" "$installer.sha256" EDR-payload-manifest.json EDR-INSTALL.txt EDR-driver-test-signing.cer EDR-release-verification.json SHA256SUMS.txt)
+          for asset in "${assets[@]}"; do test -s "package/$asset"; done
+
+          notes=$(mktemp)
+          original=$(mktemp)
+          if gh release view "$RELEASE_TAG" --json body --jq .body > "$original"; then
+            :
+          elif [[ -f "docs/RELEASE_$version.md" ]]; then
+            cp "docs/RELEASE_$version.md" "$original"
+          fi
+          # Retrying publication must leave a single package section.
+          sed '/^<!-- windows-package:start -->$/,/^<!-- windows-package:end -->$/d' "$original" > "$notes"
+          {
+            printf '\n<!-- windows-package:start -->\n## Windows x64 离线安装包\n\n'
+            printf '本版安装包与源码标签对应，包含用户态代理、本地控制台、Node.js 和 VC143 运行库。\n\n'
+            printf -- '- [下载安装包](%s/%s/releases/download/%s/%s) 与同页的 SHA-256 校验文件。\n' "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$RELEASE_TAG" "$installer"
+            printf -- '- 可选驱动复用 v1.3.2026.1020 中的测试签名产物，默认关闭。安装器未做 Authenticode 签名。\n'
+            printf -- '- 已通过安装包测试、隔离安装／修复／卸载、安装版控制台与代理烟测。管理员服务、重启和驱动加载仍待专用 VM 验收。\n'
+            printf -- '- [源码 CI](%s) · [安装包构建与验收](%s/%s/actions/runs/%s)\n' "$CI_URL" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID"
+            printf '<!-- windows-package:end -->\n'
+          } >> "$notes"
+          title="EDR $RELEASE_TAG · Windows x64"
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --verify-tag --draft --prerelease --latest=false --title "$title" --notes-file "$notes"
+          fi
+          existing=$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name')
+          compare_dir=$(mktemp -d)
+          for asset in "${assets[@]}"; do
+            if grep -Fxq "$asset" <<< "$existing"; then
+              gh release download "$RELEASE_TAG" --pattern "$asset" --dir "$compare_dir"
+              cmp "package/$asset" "$compare_dir/$asset"
+            else
+              gh release upload "$RELEASE_TAG" "package/$asset"
+            fi
+          done
+          gh release edit "$RELEASE_TAG" --title "$title" --notes-file "$notes" --draft=false

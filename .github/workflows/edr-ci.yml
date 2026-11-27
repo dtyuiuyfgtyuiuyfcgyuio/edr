@@ -2,8 +2,10 @@ name: Windows and Node CI
 
 on:
   push:
+    branches: ['**']
   pull_request:
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -15,7 +17,6 @@ concurrency:
 jobs:
   windows-native:
     name: Windows x64 native tests and Node gates
-    if: github.ref != 'refs/tags/v1.4.2026.1126'
     runs-on: windows-2022
     timeout-minutes: 90
     steps:
@@ -216,36 +217,3 @@ jobs:
           path: ${{ runner.temp }}/edr-cpp-coverage/
           if-no-files-found: ignore
           retention-days: 14
-
-  publish-source-preview:
-    name: Publish v1.4.2026.1126 source preview
-    if: github.event_name == 'push' && github.ref == 'refs/tags/v1.4.2026.1126'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      actions: read
-      contents: write
-    steps:
-      - name: Check out source tag
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-
-      - name: Verify branch CI and publish the prerelease
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: |
-          set -euo pipefail
-          release_commit=$(git rev-parse HEAD)
-          ci_url=$(gh api --method GET "repos/$GH_REPO/actions/runs" \
-            -f branch='release/1.4.2026.1126' \
-            -f head_sha="$release_commit" -f event=push -f status=success \
-            --jq '[.workflow_runs[] | select(.path == ".github/workflows/edr-ci.yml") | .html_url] | first // empty')
-          test -n "$ci_url"
-          notes=$(mktemp)
-          cp docs/RELEASE_1.4.2026.1126.md "$notes"
-          printf '\n[Windows and Node CI run](%s)\n' "$ci_url" >> "$notes"
-          gh release create "$RELEASE_TAG" --verify-tag --prerelease --latest=false \
-            --title "EDR $RELEASE_TAG · 源码预览" --notes-file "$notes"
